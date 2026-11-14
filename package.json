@@ -1,0 +1,16 @@
+{
+  "name": "xenon-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "build": "bun run --filter xenon-cms build",
+    "dev": "bun run --filter xenon-cms dev",
+    "test": "bun run --filter xenon-cms test",
+    "typecheck": "bun run --filter '*' typecheck",
+    "playground": "bun run --filter playground dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
