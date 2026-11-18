@@ -99,8 +99,17 @@ export interface DashboardCollection {
   /** Upload collections: total file size in bytes; otherwise null. */
   bytes: number | null;
 }
+export interface DashboardMedia {
+  id: string;
+  collection: string;
+  url: string;
+  alt: string;
+  updatedAt: string;
+}
 export interface DashboardData {
   collections: DashboardCollection[];
+  /** Latest images across upload collections, newest first. */
+  media: DashboardMedia[];
   recent: DashboardDoc[];
   attention: DashboardDoc[];
   attentionTotal: number;

@@ -1,7 +1,7 @@
 import type { DocumentRecord } from "../../adapters/types";
 import type { XenonConfig, XenonUser } from "../../core/types";
 import type { XenonInstance } from "../../server/types";
-import type { DashboardCollection, DashboardData, DashboardDoc } from "../../ui/shared/services";
+import type { DashboardCollection, DashboardData, DashboardDoc, DashboardMedia } from "../../ui/shared/services";
 import { summaryTitle } from "./action";
 
 const ACTIVITY_DAYS = 30;
@@ -22,6 +22,7 @@ export async function loadDashboard(xenon: XenonInstance, config: XenonConfig, u
   const attention: DashboardDoc[] = [];
   const recent: DashboardDoc[] = [];
   const collections: DashboardCollection[] = [];
+  const media: DashboardMedia[] = [];
 
   for (const collection of config.collections) {
     try {
@@ -47,6 +48,10 @@ export async function loadDashboard(xenon: XenonInstance, config: XenonConfig, u
       if (Date.parse(updated) >= since) edited.push(updated);
       if (Date.parse(createdAt) >= since) created.push(createdAt);
 
+      if (collection.upload && typeof data.url === "string" && typeof data.mimeType === "string" && data.mimeType.startsWith("image/")) {
+        media.push({ id: record.id, collection: collection.slug, url: data.url, alt: typeof data.alt === "string" && data.alt ? data.alt : summaryTitle(collection, data), updatedAt: updated });
+      }
+
       const doc = summary(collection, record, data, drafts && changed);
       recent.push(doc);
       if (drafts && (record.status === "draft" || changed)) attention.push(doc);
@@ -57,8 +62,10 @@ export async function loadDashboard(xenon: XenonInstance, config: XenonConfig, u
   recent.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   // Oldest first: the longer something has waited, the more it needs a look.
   attention.sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
+  media.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return {
     collections,
+    media: media.slice(0, 6),
     recent: recent.slice(0, 8),
     attention: attention.slice(0, LIST_SIZE),
     attentionTotal: attention.length,

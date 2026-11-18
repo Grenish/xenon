@@ -25,6 +25,7 @@ export function formatDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+/** One status mark per document: a pale pill with an ink of the same hue. */
 export function StatusBadge({
   status,
   changed = false,
@@ -35,15 +36,10 @@ export function StatusBadge({
   className?: string;
 }) {
   const label = status === "draft" ? "Draft" : changed ? "Unpublished changes" : "Published";
-  const tone =
-    status === "draft"
-      ? "xe:bg-muted xe:text-muted-foreground"
-      : changed
-        ? "xe:bg-warning/15 xe:text-warning-foreground xe:dark:text-warning"
-        : "xe:bg-success/12 xe:text-success";
-  const dot = status === "draft" ? "xe:bg-muted-foreground/60" : changed ? "xe:bg-warning" : "xe:bg-success";
+  const tone = status === "draft" ? "xe:bg-pill-draft xe:text-pill-draft-ink" : changed ? "xe:bg-pill-changed xe:text-pill-changed-ink" : "xe:bg-pill-live xe:text-pill-live-ink";
+  const dot = status === "draft" ? "xe:bg-pill-draft-ink/45" : changed ? "xe:bg-warning" : "xe:bg-success";
   return (
-    <Badge variant="secondary" className={cn("xe:gap-1.5 xe:border-transparent xe:font-medium", tone, className)}>
+    <Badge variant="secondary" className={cn("xe:h-5 xe:flex-none xe:gap-1.5 xe:rounded-full xe:border-transparent xe:px-2 xe:text-xs xe:font-medium xe:whitespace-nowrap", tone, className)}>
       <span className={cn("xe:size-1.5 xe:rounded-full", dot)} aria-hidden />
       {label}
     </Badge>

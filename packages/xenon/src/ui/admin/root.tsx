@@ -53,7 +53,7 @@ export function AdminRoot({ theme, basePath, apiPath, action, collections, user,
     <div
       ref={rootRef}
       data-theme={current}
-      className={`xenon-admin${current === "dark" ? " dark" : ""} xe:min-h-dvh xe:bg-background xe:text-foreground`}
+      className={`xenon-admin${current === "dark" ? " dark" : ""} xe:min-h-dvh xe:bg-frame xe:text-foreground`}
     >
       <PortalContainerProvider value={portal}>
         <TooltipProvider delay={400}>

@@ -139,8 +139,8 @@ function Toolbar({ editor, disabled, onImage, imageButton, canvas }: { editor: E
   }) });
   const block = BLOCK_TYPES.find((b) => b.id === state.block) ?? BLOCK_TYPES[0]!;
   return <div role="toolbar" aria-label="Formatting" aria-orientation="horizontal"
-    className={cn("xe:sticky xe:z-10 xe:flex xe:items-center xe:gap-0.5 xe:overflow-x-auto xe:py-1 xe:backdrop-blur xe:[scrollbar-width:none]",
-      canvas ? "xe:top-28 xe:-mx-1.5 xe:rounded-lg xe:border xe:border-border xe:bg-background/90 xe:px-1.5 xe:shadow-xs" : "xe:top-14 xe:rounded-t-lg xe:border-b xe:border-border xe:bg-card/95 xe:px-1.5")}>
+    className={cn("xe:sticky xe:top-12 xe:z-10 xe:flex xe:items-center xe:gap-0.5 xe:overflow-x-auto xe:[scrollbar-width:none] xe:lg:top-0",
+      canvas ? "xe:-mx-2 xe:border-y xe:border-rule xe:bg-background xe:px-1 xe:py-1.5 xe:font-sans" : "xe:rounded-t-md xe:border-b xe:border-border xe:bg-card xe:px-1.5 xe:py-1")}>
     <DropdownMenu>
       <DropdownMenuTrigger disabled={disabled} render={<Button type="button" variant="ghost" size="sm" className="xe:w-36 xe:shrink-0 xe:justify-between xe:font-normal" aria-label={`Block type: ${block.label}`} onMouseDown={(event) => event.preventDefault()} />}>
         <span className="xe:flex xe:items-center xe:gap-1.5"><block.icon className="xe:size-4 xe:text-muted-foreground" />{block.label}</span><RiArrowDownSLine className="xe:size-4 xe:text-muted-foreground" />
@@ -299,7 +299,7 @@ export function RichTextEditor(props: FieldInputProps) {
   const store = useMemo(() => new SlashMenuStore(() => slashItems(openImagesRef.current ? () => openImagesRef.current?.() : null)), []);
   const placeholder = props.field.admin.placeholder ?? "Start writing, or press / for blocks…";
   const canvas = props.variant === "canvas";
-  const contentClass = canvas ? "xe-prose xe-prose-lg xe:min-h-[50vh] xe:pt-5 xe:pb-24 xe:outline-none" : "xe-prose xe:min-h-72 xe:px-5 xe:py-4 xe:outline-none";
+  const contentClass = canvas ? "xe-prose xe-prose-lg xe:min-h-[50vh] xe:pt-6 xe:pb-24 xe:outline-none" : "xe-prose xe:min-h-72 xe:px-5 xe:py-4 xe:outline-none";
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -338,7 +338,7 @@ export function RichTextEditor(props: FieldInputProps) {
         event.preventDefault(); event.stopPropagation(); setLinking(true);
       }
     }}
-    className={canvas ? "" : "xe:rounded-lg xe:border xe:border-input xe:bg-card xe:shadow-xs xe:transition-[border-color,box-shadow] xe:focus-within:border-foreground/25 xe:focus-within:ring-[3px] xe:focus-within:ring-ring/60 xe:data-invalid:border-destructive"}>
+    className={canvas ? "" : "xe:rounded-md xe:border xe:border-input xe:bg-card xe:transition-[border-color,box-shadow] xe:focus-within:border-foreground/25 xe:focus-within:ring-[3px] xe:focus-within:ring-ring/60 xe:data-invalid:border-destructive"}>
     <Toolbar editor={editor} disabled={disabled} onImage={openImages} imageButton={imageButton} canvas={canvas} />
     <EditorContent editor={editor} />
     {container && !disabled ? <SelectionMenu editor={editor} container={container} linking={linking} setLinking={setLinking} /> : null}

@@ -93,7 +93,7 @@ export function UsersView({ users }: { users: TeamMember[] }) {
   }
 
   return (
-    <section className="xe:rounded-lg xe:border xe:border-border xe:bg-card xe:shadow-xs">
+    <section className="xe:rounded-lg xe:border xe:border-border xe:bg-card">
       <header className="xe:flex xe:flex-wrap xe:items-start xe:justify-between xe:gap-4 xe:border-b xe:border-border xe:px-6 xe:py-5">
         <div className="xe:flex xe:flex-col xe:gap-1">
           <h2 className="xe:text-[15px] xe:font-semibold">Team</h2>
@@ -110,7 +110,7 @@ export function UsersView({ users }: { users: TeamMember[] }) {
         {users.map((u) => (
           <div key={u.id} className="xe:flex xe:items-center xe:gap-4 xe:px-6 xe:py-3.5">
             <Avatar className="xe:size-9">
-              <AvatarFallback className="xe:bg-muted xe:text-xs xe:font-semibold xe:text-foreground">{initials(u.name, u.email)}</AvatarFallback>
+              <AvatarFallback className="xe:bg-brand-soft xe:text-xs xe:font-semibold xe:text-brand">{initials(u.name, u.email)}</AvatarFallback>
             </Avatar>
             <div className="xe:min-w-0 xe:flex-1">
               <p className="xe:truncate xe:font-medium">

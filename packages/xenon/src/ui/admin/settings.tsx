@@ -38,31 +38,28 @@ export function SettingsView({ tab, users, sessions }: { tab: SettingsTab; users
   const { basePath, user } = useAdmin();
   const tabs = TABS.filter((t) => !t.adminOnly || user.role === "admin");
   return (
-    <div className="xe:flex xe:flex-col xe:gap-8">
+    <div className="xe:flex xe:flex-col xe:gap-5">
       <header className="xe:flex xe:flex-col xe:gap-1">
-        <h1 className="xe:text-2xl xe:font-semibold xe:tracking-tight">Settings</h1>
-        <p className="xe:text-muted-foreground">Manage your profile, how the admin looks{user.role === "admin" ? ", and who's on your team" : ""}.</p>
+        <h1 className="xe:text-[22px] xe:font-semibold xe:leading-tight xe:tracking-[-0.01em]">Settings</h1>
+        <p className="xe:text-sm xe:text-muted-foreground">Your profile, how the admin looks{user.role === "admin" ? ", and who can sign in" : ""}.</p>
       </header>
-      <div className="xe:grid xe:items-start xe:gap-8 xe:md:grid-cols-[13rem_minmax(0,1fr)]">
-        <nav aria-label="Settings" className="xe:-mx-1 xe:flex xe:gap-1 xe:overflow-x-auto xe:px-1 xe:md:sticky xe:md:top-22 xe:md:mx-0 xe:md:flex-col xe:md:px-0">
-          {tabs.map((t) => (
-            <Link
-              key={t.id}
-              href={adminRoutes.settings(basePath, t.id)}
-              aria-current={t.id === tab ? "page" : undefined}
-              className={cn(
-                "xe:flex xe:h-9 xe:shrink-0 xe:items-center xe:gap-2.5 xe:rounded-md xe:px-3 xe:text-sm xe:font-medium xe:transition-colors",
-                t.id === tab ? "xe:bg-accent xe:text-foreground" : "xe:text-muted-foreground xe:hover:bg-accent/60 xe:hover:text-foreground",
-              )}
-            >
-              <t.icon className="xe:size-4" />
-              {t.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="xe:flex xe:min-w-0 xe:max-w-3xl xe:flex-col xe:gap-6">
-          {tab === "profile" ? <ProfileSettings sessions={sessions} /> : tab === "appearance" ? <AppearanceSettings /> : <UsersView users={users} />}
-        </div>
+      <nav aria-label="Settings" className="xe:flex xe:gap-5 xe:overflow-x-auto xe:border-b xe:border-border">
+        {tabs.map((t) => (
+          <Link
+            key={t.id}
+            href={adminRoutes.settings(basePath, t.id)}
+            aria-current={t.id === tab ? "page" : undefined}
+            className={cn(
+              "xe:-mb-px xe:flex xe:h-10 xe:shrink-0 xe:items-center xe:gap-2 xe:border-b-2 xe:text-sm xe:transition-colors",
+              t.id === tab ? "xe:border-brand xe:font-medium xe:text-foreground" : "xe:border-transparent xe:text-muted-foreground xe:hover:text-foreground",
+            )}
+          >
+            {t.label}
+          </Link>
+        ))}
+      </nav>
+      <div className="xe:flex xe:min-w-0 xe:flex-col xe:pt-3">
+        {tab === "profile" ? <ProfileSettings sessions={sessions} /> : tab === "appearance" ? <AppearanceSettings /> : <UsersView users={users} />}
       </div>
     </div>
   );
@@ -70,21 +67,29 @@ export function SettingsView({ tab, users, sessions }: { tab: SettingsTab; users
 
 /* ---------------------------------------------------------------- building blocks */
 
+/**
+ * One settings section is one row: what it is (title + description) on the left, the controls in a
+ * tinted panel on the right. Sections are split by a full-width rule.
+ */
 function Section({ title, description, children, footer, onSubmit, danger }: {
   title: string; description?: ReactNode; children: ReactNode; footer?: ReactNode; onSubmit?: (e: FormEvent<HTMLFormElement>) => void; danger?: boolean;
 }) {
-  const body = (
+  const panel = (
     <>
-      <div className="xe:flex xe:flex-col xe:gap-1 xe:px-6 xe:pt-5">
-        <h2 className="xe:text-[15px] xe:font-semibold">{title}</h2>
-        {description ? <p className="xe:text-sm xe:text-muted-foreground">{description}</p> : null}
-      </div>
-      <div className="xe:px-6 xe:py-5">{children}</div>
-      {footer ? <div className="xe:flex xe:items-center xe:justify-end xe:gap-2 xe:rounded-b-lg xe:border-t xe:border-border xe:bg-muted/40 xe:px-6 xe:py-3">{footer}</div> : null}
+      <div className="xe:p-5">{children}</div>
+      {footer ? <div className="xe:flex xe:items-center xe:justify-end xe:gap-2 xe:px-5 xe:pb-5">{footer}</div> : null}
     </>
   );
-  const className = cn("xe:rounded-lg xe:border xe:bg-card xe:shadow-xs", danger ? "xe:border-destructive/30" : "xe:border-border");
-  return onSubmit ? <form onSubmit={onSubmit} className={className}>{body}</form> : <section className={className}>{body}</section>;
+  const panelClass = cn("xe:min-w-0 xe:rounded-[10px] xe:bg-muted", danger && "xe:ring-1 xe:ring-destructive/30");
+  return (
+    <section className="xe:grid xe:gap-4 xe:border-b xe:border-border xe:py-8 xe:first:pt-2 xe:last:border-b-0 xe:md:grid-cols-[minmax(0,17rem)_minmax(0,1fr)] xe:md:gap-10">
+      <div className="xe:flex xe:flex-col xe:gap-1 xe:md:pt-1">
+        <h2 className={cn("xe:text-[15px] xe:font-semibold", danger && "xe:text-destructive")}>{title}</h2>
+        {description ? <p className="xe:text-sm xe:text-muted-foreground">{description}</p> : null}
+      </div>
+      {onSubmit ? <form onSubmit={onSubmit} className={panelClass}>{panel}</form> : <div className={panelClass}>{panel}</div>}
+    </section>
+  );
 }
 
 /* ---------------------------------------------------------------- profile & security */
@@ -130,7 +135,7 @@ function ProfileSettings({ sessions }: { sessions: AccountSession[] }) {
       >
         <div className="xe:flex xe:flex-col xe:gap-6 xe:sm:flex-row xe:sm:items-start">
           <Avatar className="xe:size-14">
-            <AvatarFallback className="xe:bg-muted xe:text-base xe:font-semibold xe:text-foreground">{initials(name || user.name, user.email)}</AvatarFallback>
+            <AvatarFallback className="xe:bg-brand-soft xe:text-base xe:font-semibold xe:text-brand">{initials(name || user.name, user.email)}</AvatarFallback>
           </Avatar>
           <FieldGroup className="xe:flex-1">
             <Field>
@@ -222,9 +227,7 @@ function SessionsSection({ sessions }: { sessions: AccountSession[] }) {
           const DeviceIcon = agent.mobile ? RiSmartphoneLine : RiComputerLine;
           return (
             <li key={s.id} className="xe:flex xe:items-center xe:gap-4 xe:py-3">
-              <span className="xe:grid xe:size-9 xe:shrink-0 xe:place-items-center xe:rounded-md xe:border xe:border-border xe:bg-background">
-                <DeviceIcon className="xe:size-4 xe:text-muted-foreground" />
-              </span>
+              <DeviceIcon className="xe:size-5 xe:shrink-0 xe:text-muted-foreground" />
               <div className="xe:min-w-0 xe:flex-1">
                 <p className="xe:flex xe:items-center xe:gap-2 xe:text-sm xe:font-medium">
                   {agent.label}
@@ -264,22 +267,26 @@ function SessionsSection({ sessions }: { sessions: AccountSession[] }) {
 
 function ThemePreview({ variant }: { variant: "light" | "dark" }) {
   const dark = variant === "dark";
-  const bg = dark ? "oklch(0.155 0 0)" : "oklch(0.992 0 0)";
-  const side = dark ? "oklch(0.17 0 0)" : "oklch(0.965 0 0)";
-  const line = dark ? "oklch(0.32 0 0)" : "oklch(0.88 0 0)";
-  const ink = dark ? "oklch(0.85 0 0)" : "oklch(0.25 0 0)";
+  const frame = dark ? "#0c0d0f" : "#f1f3f5";
+  const sheet = dark ? "#141518" : "#ffffff";
+  const edge = dark ? "#25282c" : "#e6e8eb";
+  const line = dark ? "#2c2f34" : "#e3e6ea";
+  const ink = dark ? "#d9dce0" : "#2a2c30";
+  const brand = dark ? "#5fb4c8" : "#1b6c80";
   return (
     <svg viewBox="0 0 120 72" className="xe:h-full xe:w-full" aria-hidden>
-      <rect width="120" height="72" fill={bg} />
-      <rect width="30" height="72" fill={side} />
-      <rect x="6" y="8" width="16" height="4" rx="2" fill={ink} />
-      <rect x="6" y="20" width="18" height="3" rx="1.5" fill={line} />
-      <rect x="6" y="28" width="14" height="3" rx="1.5" fill={line} />
-      <rect x="40" y="10" width="40" height="5" rx="2.5" fill={ink} />
-      <rect x="40" y="22" width="70" height="3" rx="1.5" fill={line} />
-      <rect x="40" y="30" width="62" height="3" rx="1.5" fill={line} />
-      <rect x="40" y="38" width="66" height="3" rx="1.5" fill={line} />
-      <rect x="40" y="52" width="22" height="9" rx="2.5" fill={ink} />
+      <rect width="120" height="72" fill={frame} />
+      <rect x="5" y="5" width="7" height="7" rx="1.5" fill={brand} />
+      <rect x="5" y="20" width="18" height="3" rx="1.5" fill={line} />
+      <rect x="5" y="27" width="14" height="3" rx="1.5" fill={line} />
+      <rect x="5" y="34" width="16" height="3" rx="1.5" fill={line} />
+      <rect x="29.5" y="12.5" width="87" height="56" rx="4" fill={sheet} stroke={edge} />
+      <rect x="37" y="20" width="34" height="4.5" rx="2" fill={ink} />
+      <rect x="37" y="31" width="72" height="4" rx="2" fill={line} />
+      <rect x="37" y="31" width="40" height="4" rx="2" fill={brand} />
+      <rect x="37" y="42" width="66" height="3" rx="1.5" fill={line} />
+      <rect x="37" y="49" width="58" height="3" rx="1.5" fill={line} />
+      <rect x="37" y="56" width="62" height="3" rx="1.5" fill={line} />
     </svg>
   );
 }
@@ -306,7 +313,7 @@ function AppearanceSettings() {
               onClick={() => { setTheme(t.id); toast.success(`${t.label} theme`); }}
               className={cn(
                 "xe:group xe:flex xe:flex-col xe:gap-3 xe:rounded-lg xe:border xe:p-2 xe:text-left xe:transition-colors",
-                selected ? "xe:border-foreground xe:ring-1 xe:ring-foreground" : "xe:border-border xe:hover:border-foreground/40",
+                selected ? "xe:border-brand xe:bg-background xe:outline xe:outline-1 xe:outline-brand" : "xe:border-border xe:bg-background xe:hover:border-input",
               )}
             >
               <span className="xe:relative xe:block xe:aspect-[5/3] xe:overflow-hidden xe:rounded-md xe:border xe:border-border">
@@ -324,7 +331,7 @@ function AppearanceSettings() {
                   <span className="xe:block xe:text-sm xe:font-medium">{t.label}</span>
                   <span className="xe:block xe:text-xs xe:text-muted-foreground">{t.description}</span>
                 </span>
-                {selected ? <RiCheckLine className="xe:size-4 xe:shrink-0" aria-hidden /> : null}
+                {selected ? <RiCheckLine className="xe:size-4 xe:shrink-0 xe:text-brand" aria-hidden /> : null}
               </span>
             </button>
           );

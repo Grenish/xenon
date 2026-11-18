@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { RiArrowRightSLine, RiMoreLine, RiDeleteBinLine, RiEyeOffLine } from "@remixicon/react";
+import { RiMoreLine, RiDeleteBinLine, RiEyeOffLine, RiSave3Line } from "@remixicon/react";
 import { StatusBadge, timeAgo, formatDate } from "../admin/format";
+import { useShellBar } from "../admin/shell-bar";
 import { Alert, AlertDescription, AlertTitle } from "../components/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/alert-dialog";
 import { Button } from "../components/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../components/dropdown-menu";
 import { Spinner } from "../components/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/tooltip";
@@ -154,78 +153,91 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const words = bodyField ? richTextToPlainText(data[bodyField.name] as RichTextDocument | null).trim().split(/\s+/).filter(Boolean).length : 0;
   const propertyFields = canvasMode ? collection.fields.filter((field) => field !== titleField && field !== bodyField) : collection.fields.filter((field) => field.admin.position === "sidebar");
 
-  return <div className="xe:flex xe:flex-col">
-    {/* Sticky action bar: where you are, save state, and the primary actions. */}
-    <div className="xe:sticky xe:top-14 xe:z-20 xe:-mx-4 xe:-mt-8 xe:mb-8 xe:flex xe:h-14 xe:items-center xe:gap-3 xe:border-b xe:border-border xe:bg-background/90 xe:px-4 xe:backdrop-blur-md xe:sm:-mx-6 xe:sm:px-6 xe:lg:-mx-10 xe:lg:px-10">
-      <nav aria-label="Breadcrumb" className="xe:flex xe:min-w-0 xe:flex-1 xe:items-center xe:gap-1.5 xe:text-sm xe:text-muted-foreground">
-        <Link href={adminRoutes.list(basePath, collection.slug)} className="xe:shrink-0 xe:transition-colors xe:hover:text-foreground">{collection.labels.plural}</Link>
-        <RiArrowRightSLine className="xe:size-4 xe:shrink-0" aria-hidden="true" />
-        <span aria-current="page" className="xe:truncate xe:font-medium xe:text-foreground">{current || dirty ? title : `New ${collection.labels.singular.toLowerCase()}`}</span>
-      </nav>
-      <div className="xe:flex xe:shrink-0 xe:items-center xe:gap-3">
-        {isDraftsEnabled ? <StatusBadge status={current?.status ?? "draft"} changed={current?.hasUnpublishedChanges || dirty && current?.status === "published"} className="xe:hidden xe:sm:inline-flex" /> : null}
-        <p className="xe:hidden xe:text-xs xe:text-muted-foreground xe:md:block" aria-live="polite">{saveState}</p>
-        <div className="xe:flex xe:items-center xe:gap-1.5">
-          {isDraftsEnabled ? <Button type="button" size="sm" variant="ghost" disabled={!!pending} onClick={() => void save(true)}>{pending === "save" ? <Spinner /> : null}Save draft</Button> : null}
-          <Button type="button" size="sm" disabled={!!pending} onClick={() => void save(false)}>{pending === "publish" ? <Spinner /> : null}{isDraftsEnabled ? "Publish" : "Save"}</Button>
-          {current ? <DropdownMenu><DropdownMenuTrigger ref={actionsButton} render={<Button type="button" variant="ghost" size="icon-sm" aria-label="More document actions" disabled={!!pending} />}><RiMoreLine /></DropdownMenuTrigger>
-            <DropdownMenuContent align="end"><DropdownMenuGroup>
-              {isDraftsEnabled && current.status === "published" ? <><DropdownMenuItem onClick={() => void unpublish()}><RiEyeOffLine />Unpublish</DropdownMenuItem><DropdownMenuSeparator /></> : null}
-              <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}><RiDeleteBinLine />Delete</DropdownMenuItem>
-            </DropdownMenuGroup></DropdownMenuContent>
-          </DropdownMenu> : null}
+  const docLabel = current || dirty ? title : `New ${collection.labels.singular.toLowerCase()}`;
+  useShellBar({
+    crumbs: [{ label: collection.labels.plural, href: adminRoutes.list(basePath, collection.slug) }, { label: docLabel }],
+    status: <>
+      {isDraftsEnabled ? <StatusBadge status={current?.status ?? "draft"} changed={current?.hasUnpublishedChanges || dirty && current?.status === "published"} className="xe:hidden xe:sm:inline-flex" /> : null}
+      <p className="xe:hidden xe:text-[13px] xe:text-muted-foreground xe:md:block" aria-live="polite" suppressHydrationWarning>{saveState}</p>
+    </>,
+    actions: <div className="xe:flex xe:items-center xe:gap-1.5">
+      {isDraftsEnabled ? <Button type="button" variant="outline" className="xe:hidden xe:sm:inline-flex" disabled={!!pending} onClick={() => void save(true)}>{pending === "save" ? <Spinner /> : null}Save draft</Button> : null}
+      <Button type="button" disabled={!!pending} onClick={() => void save(false)}>{pending === "publish" ? <Spinner /> : null}{isDraftsEnabled ? "Publish" : "Save"}</Button>
+      {current ? <DropdownMenu><DropdownMenuTrigger ref={actionsButton} render={<Button type="button" variant="ghost" size="icon" aria-label="More document actions" disabled={!!pending} />}><RiMoreLine /></DropdownMenuTrigger>
+        <DropdownMenuContent align="end"><DropdownMenuGroup>
+          {isDraftsEnabled ? <DropdownMenuItem className="xe:sm:hidden" onClick={() => void save(true)}><RiSave3Line />Save draft</DropdownMenuItem> : null}
+          {isDraftsEnabled && current.status === "published" ? <><DropdownMenuItem onClick={() => void unpublish()}><RiEyeOffLine />Unpublish</DropdownMenuItem><DropdownMenuSeparator /></> : null}
+          <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}><RiDeleteBinLine />Delete</DropdownMenuItem>
+        </DropdownMenuGroup></DropdownMenuContent>
+      </DropdownMenu> : null}
+    </div>,
+  });
+
+  const hasPublishing = isDraftsEnabled || collection.slugFrom || current?.slug;
+  const visibleProperties = propertyFields.some((field) => !field.admin.hidden);
+
+  // Full-bleed on the sheet: the canvas on the left, the inspector as a ruled column on the right.
+  return <div data-xe-full className="xe:flex xe:flex-col xe:lg:grid xe:lg:min-h-[calc(100dvh-3.5rem-2px)] xe:lg:grid-cols-[minmax(0,1fr)_21rem]">
+    <div className="xe:flex xe:min-w-0 xe:flex-col xe:gap-6 xe:px-4 xe:pt-6 xe:pb-10 xe:sm:px-8 xe:lg:pt-10">
+      {formError ? <Alert ref={alertRef} tabIndex={-1} variant="destructive" className="xe:mx-auto xe:w-full xe:max-w-[46rem]"><AlertTitle>We couldn’t save your changes</AlertTitle><AlertDescription>{formError}</AlertDescription></Alert> : null}
+
+      {collection.upload ? <section className="xe:mx-auto xe:flex xe:w-full xe:max-w-[46rem] xe:flex-col xe:gap-3">
+        <div className="xe:flex xe:flex-col xe:gap-1">
+          <h1 className="xe:text-[22px] xe:font-semibold xe:leading-tight xe:tracking-[-0.01em]">{current ? title : `Upload to ${collection.labels.plural.toLowerCase()}`}</h1>
+          <p className="xe:text-sm xe:text-muted-foreground">{current ? "Keep this file or drop in a replacement." : "Choose the file you want to add to your library."}</p>
         </div>
-      </div>
-    </div>
-
-    {formError ? <Alert ref={alertRef} tabIndex={-1} variant="destructive" className="xe:mb-6"><AlertTitle>We couldn’t save your changes</AlertTitle><AlertDescription>{formError}</AlertDescription></Alert> : null}
-
-    <div className="xe:grid xe:items-start xe:gap-10 xe:lg:grid-cols-[minmax(0,1fr)_19rem]">
-      <div className="xe:flex xe:min-w-0 xe:flex-col xe:gap-6">
-        {collection.upload ? <Card><CardHeader><CardTitle>File</CardTitle><CardDescription>{current ? "Keep this file or choose a replacement." : "Choose the file you want to add to your library."}</CardDescription></CardHeader><CardContent>
-          <FileDropzone file={file} onChange={setFile} disabled={!!pending} accept={collection.upload.mimeTypes?.join(",")}
-            url={typeof current?.data.url === "string" ? current.data.url : null} filename={typeof current?.data.filename === "string" ? current.data.filename : null} mimeType={typeof current?.data.mimeType === "string" ? current.data.mimeType : null} />
-        </CardContent></Card> : null}
-
-        {canvasMode ? <article className="xe:mx-auto xe:flex xe:w-full xe:max-w-3xl xe:flex-col">
-          {titleField ? <div className="xe:flex xe:flex-col xe:gap-1.5">
-            <TitleInput id={`${canvasId}-title`} label={titleField.label} value={typeof data[titleField.name] === "string" ? data[titleField.name] as string : ""}
-              placeholder={titleField.admin.placeholder ?? `Untitled ${collection.labels.singular.toLowerCase()}`} maxLength={titleField.maxLength} disabled={!!pending || titleField.admin.readOnly}
-              error={fieldErrors[titleField.name]} onChange={(value) => change(titleField.name, value)}
-              onEnter={() => document.getElementById(`${canvasId}-body`)?.focus()} />
-          </div> : null}
-          {bodyField ? <div className="xe:mt-4 xe:flex xe:flex-col xe:gap-1.5">
-            <span id={`${canvasId}-body-label`} className="xe:sr-only">{bodyField.label}</span>
-            <RichTextEditor variant="canvas" field={bodyField} id={`${canvasId}-body`} value={data[bodyField.name]} disabled={!!pending}
-              aria-invalid={!!fieldErrors[bodyField.name]} aria-describedby={fieldErrors[bodyField.name] ? `${canvasId}-body-error` : undefined}
-              onChange={(value) => change(bodyField.name, value)} />
-            {fieldErrors[bodyField.name] ? <p id={`${canvasId}-body-error`} role="alert" className="xe:text-sm xe:text-destructive">{fieldErrors[bodyField.name]}</p> : null}
-          </div> : null}
-        </article> : <Card className="xe:overflow-visible"><CardHeader><CardTitle>Content</CardTitle>{collection.admin.description ? <CardDescription>{collection.admin.description}</CardDescription> : null}</CardHeader><CardContent>
+        <FileDropzone file={file} onChange={setFile} disabled={!!pending} accept={collection.upload.mimeTypes?.join(",")}
+          url={typeof current?.data.url === "string" ? current.data.url : null} filename={typeof current?.data.filename === "string" ? current.data.filename : null} mimeType={typeof current?.data.mimeType === "string" ? current.data.mimeType : null} />
+        <div className="xe:mt-4 xe:flex xe:flex-col xe:gap-4">
+          <h2 className="xe:text-[15px] xe:font-semibold">Details</h2>
           <FormRenderer fields={collection.fields.filter((field) => field.admin.position !== "sidebar")} data={data} disabled={!!pending} errors={fieldErrors} onChange={change} />
-        </CardContent></Card>}
-      </div>
+        </div>
+      </section> : null}
 
-      {/* Properties: publication state, then every other field. */}
-      <aside aria-label="Properties" className="xe:flex xe:flex-col xe:rounded-lg xe:border xe:border-border xe:bg-card xe:shadow-xs xe:lg:sticky xe:lg:top-32 xe:lg:max-h-[calc(100dvh-9.5rem)] xe:lg:overflow-y-auto xe:lg:[scrollbar-width:thin]">
-        <div className="xe:flex xe:flex-col xe:gap-3 xe:p-4">
-          <h2 className="xe:text-xs xe:font-medium xe:text-muted-foreground">Properties</h2>
-          {isDraftsEnabled || collection.slugFrom || current?.slug ? <dl className="xe:flex xe:flex-col xe:gap-2.5 xe:text-sm">
-            {isDraftsEnabled ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-2"><dt className="xe:text-muted-foreground">Status</dt><dd><StatusBadge status={current?.status ?? "draft"} changed={current?.hasUnpublishedChanges} /></dd></div> : null}
-            {collection.slugFrom || current?.slug ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-3"><dt className="xe:shrink-0 xe:text-muted-foreground">Slug</dt><dd className="xe:min-w-0 xe:truncate xe:font-mono xe:text-xs" title={current?.slug ?? undefined}>{current?.slug ?? <span className="xe:font-sans xe:text-muted-foreground">Set when you save</span>}</dd></div> : null}
-          </dl> : null}
-        </div>
-        {propertyFields.some((field) => !field.admin.hidden) ? <div className={isDraftsEnabled || collection.slugFrom || current?.slug ? "xe:border-t xe:border-border xe:p-4" : "xe:px-4 xe:pb-4"}>
-          <FormRenderer fields={propertyFields} data={data} onChange={change} errors={fieldErrors} disabled={!!pending} />
+      {canvasMode ? <article className="xe:mx-auto xe:flex xe:w-full xe:max-w-[46rem] xe:flex-col">
+        <h1 className="xe:sr-only">{docLabel}</h1>
+        {titleField ? <div className="xe:flex xe:flex-col xe:gap-1.5">
+          <TitleInput id={`${canvasId}-title`} label={titleField.label} value={typeof data[titleField.name] === "string" ? data[titleField.name] as string : ""}
+            placeholder={titleField.admin.placeholder ?? `Untitled ${collection.labels.singular.toLowerCase()}`} maxLength={titleField.maxLength} disabled={!!pending || titleField.admin.readOnly}
+            error={fieldErrors[titleField.name]} onChange={(value) => change(titleField.name, value)}
+            onEnter={() => document.getElementById(`${canvasId}-body`)?.focus()} />
         </div> : null}
-        <div className="xe:mt-auto xe:flex xe:flex-col xe:gap-1.5 xe:border-t xe:border-border xe:bg-muted/40 xe:p-4 xe:text-xs xe:text-muted-foreground">
-          {current ? <p>Created <Tooltip><TooltipTrigger render={<time dateTime={current.createdAt} tabIndex={0} suppressHydrationWarning className="xe:text-foreground" />}>{timeAgo(current.createdAt)}</TooltipTrigger><TooltipContent>{formatDate(current.createdAt)}</TooltipContent></Tooltip>
-            {" · "}Updated <Tooltip><TooltipTrigger render={<time dateTime={current.updatedAt} tabIndex={0} suppressHydrationWarning className="xe:text-foreground" />}>{timeAgo(current.updatedAt)}</TooltipTrigger><TooltipContent>{formatDate(current.updatedAt)}</TooltipContent></Tooltip></p> : null}
-          {bodyField ? <p>{words === 1 ? "1 word" : `${words.toLocaleString()} words`} · {Math.max(1, Math.round(words / 220))} min read</p> : null}
-          <p>{isDraftsEnabled ? <><Kbd>⌘S</Kbd> save draft · <Kbd>⌘↵</Kbd> publish</> : <><Kbd>⌘S</Kbd> save</>}</p>
+        {bodyField ? <div className="xe:mt-5 xe:flex xe:flex-col xe:gap-1.5">
+          <span id={`${canvasId}-body-label`} className="xe:sr-only">{bodyField.label}</span>
+          <RichTextEditor variant="canvas" field={bodyField} id={`${canvasId}-body`} value={data[bodyField.name]} disabled={!!pending}
+            aria-invalid={!!fieldErrors[bodyField.name]} aria-describedby={fieldErrors[bodyField.name] ? `${canvasId}-body-error` : undefined}
+            onChange={(value) => change(bodyField.name, value)} />
+          {fieldErrors[bodyField.name] ? <p id={`${canvasId}-body-error`} role="alert" className="xe:text-sm xe:text-destructive">{fieldErrors[bodyField.name]}</p> : null}
+        </div> : null}
+      </article> : !collection.upload ? <section className="xe:mx-auto xe:flex xe:w-full xe:max-w-[46rem] xe:flex-col xe:gap-5">
+        <div className="xe:flex xe:flex-col xe:gap-1">
+          <h1 className="xe:text-[22px] xe:font-semibold xe:leading-tight xe:tracking-[-0.01em]">{docLabel}</h1>
+          {collection.admin.description ? <p className="xe:text-sm xe:text-muted-foreground">{collection.admin.description}</p> : null}
         </div>
-      </aside>
+        <FormRenderer fields={collection.fields.filter((field) => field.admin.position !== "sidebar")} data={data} disabled={!!pending} errors={fieldErrors} onChange={change} />
+      </section> : null}
     </div>
+
+    {/* Inspector: publication state, every other field, then document facts. */}
+    <aside aria-label="Properties" className="xe:flex xe:flex-col xe:border-t xe:border-border xe:bg-background xe:lg:sticky xe:lg:top-0 xe:lg:h-[calc(100dvh-3.5rem-2px)] xe:lg:overflow-y-auto xe:lg:border-t-0 xe:lg:border-l xe:lg:[scrollbar-width:thin]">
+      {hasPublishing ? <section className="xe:flex xe:flex-col xe:gap-3 xe:border-b xe:border-border xe:px-5 xe:py-4">
+        <h2 className="xe:text-[13px] xe:font-semibold">Publishing</h2>
+        <dl className="xe:flex xe:flex-col xe:gap-2.5 xe:text-[13px]">
+          {isDraftsEnabled ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-2 xe:sm:hidden"><dt className="xe:text-muted-foreground">Status</dt><dd><StatusBadge status={current?.status ?? "draft"} changed={current?.hasUnpublishedChanges} /></dd></div> : null}
+          {collection.slugFrom || current?.slug ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-3"><dt className="xe:shrink-0 xe:text-muted-foreground">Slug</dt><dd className="xe:min-w-0 xe:truncate xe:font-mono xe:text-xs" title={current?.slug ?? undefined}>{current?.slug ?? <span className="xe:font-sans xe:text-muted-foreground">Set when you save</span>}</dd></div> : null}
+          {current ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-3"><dt className="xe:text-muted-foreground">Updated</dt><dd><Tooltip><TooltipTrigger render={<time dateTime={current.updatedAt} tabIndex={0} suppressHydrationWarning />}>{timeAgo(current.updatedAt)}</TooltipTrigger><TooltipContent>{formatDate(current.updatedAt)}</TooltipContent></Tooltip></dd></div> : null}
+          {current ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-3"><dt className="xe:text-muted-foreground">Created</dt><dd><Tooltip><TooltipTrigger render={<time dateTime={current.createdAt} tabIndex={0} suppressHydrationWarning />}>{timeAgo(current.createdAt)}</TooltipTrigger><TooltipContent>{formatDate(current.createdAt)}</TooltipContent></Tooltip></dd></div> : null}
+        </dl>
+      </section> : null}
+      {visibleProperties ? <section className="xe:flex xe:flex-col xe:gap-4 xe:px-5 xe:py-4">
+        <h2 className="xe:text-[13px] xe:font-semibold">Details</h2>
+        <FormRenderer fields={propertyFields} data={data} onChange={change} errors={fieldErrors} disabled={!!pending} />
+      </section> : null}
+      <div className="xe:mt-auto xe:flex xe:flex-col xe:gap-1.5 xe:border-t xe:border-border xe:bg-muted/60 xe:px-5 xe:py-3 xe:text-xs xe:text-muted-foreground">
+        {bodyField ? <p><span className="xe:tabular-nums xe:text-foreground">{words === 1 ? "1 word" : `${words.toLocaleString()} words`}</span> · {Math.max(1, Math.round(words / 220))} min read</p> : null}
+        <p>{isDraftsEnabled ? <><Kbd>⌘S</Kbd> save draft · <Kbd>⌘↵</Kbd> publish</> : <><Kbd>⌘S</Kbd> save</>}</p>
+      </div>
+    </aside>
     <AlertDialog open={leaveTo !== null} onOpenChange={(open) => { if (!open) setLeaveTo(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle><AlertDialogDescription>You have changes to “{title}” that haven’t been saved. If you leave now, they’ll be lost.</AlertDialogDescription></AlertDialogHeader>
       <AlertDialogFooter><AlertDialogCancel>Keep editing</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => {
         const href = leaveTo; setLeaveTo(null); setBaseline(JSON.stringify(data)); setFile(null);
@@ -254,7 +266,7 @@ function TitleInput({ id, label, value, placeholder, maxLength, disabled, error,
       aria-invalid={!!error} aria-describedby={error ? `${id}-error` : undefined}
       onChange={(event) => onChange(event.target.value.replace(/\n/g, " "))}
       onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); onEnter(); } }}
-      className="xe:w-full xe:resize-none xe:overflow-hidden xe:bg-transparent xe:text-[2.125rem] xe:font-semibold xe:leading-[1.2] xe:tracking-[-0.022em] xe:outline-none xe:placeholder:text-muted-foreground/45 xe:focus-visible:outline-none xe:disabled:opacity-70" />
+      className="xe:w-full xe:resize-none xe:overflow-hidden xe:bg-transparent xe:font-serif xe:text-[2rem] xe:font-semibold xe:sm:text-[2.5rem] xe:leading-[1.15] xe:tracking-[-0.02em] xe:outline-none xe:placeholder:text-muted-foreground/45 xe:focus-visible:outline-none xe:disabled:opacity-70" />
     {error ? <p id={`${id}-error`} role="alert" className="xe:text-sm xe:text-destructive">{error}</p> : null}
   </>;
 }

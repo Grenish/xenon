@@ -12,12 +12,10 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { buttonVariants } from "../components/button";
-import { Card } from "../components/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../components/empty";
 import { Input } from "../components/input";
 import { Kbd } from "../components/kbd";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/table";
-import { Tabs, TabsList, TabsTrigger } from "../components/tabs";
 import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
 import type { ClientCollection, ClientField } from "../shared/client-config";
@@ -81,7 +79,11 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
   const [search, setSearch] = useState(query.q);
   const [active, setActive] = useState(-1);
   const searchRef = useRef<HTMLInputElement>(null);
-  const columns = pickColumns(collection);
+  // A long-text field (an excerpt, a summary) reads better as the title's second line than as a column.
+  const allColumns = pickColumns(collection);
+  const subtitle = allColumns.find((f) => f.type === "textarea") ?? collection.fields.find((f) => f.type === "textarea" && !f.admin.hidden && f.name !== collection.admin.useAsTitle) ?? null;
+  const columns = allColumns.filter((f) => f !== subtitle);
+  const titleLabel = collection.fields.find((f) => f.name === collection.admin.useAsTitle)?.label ?? "Title";
   const Icon = collectionIcon(collection);
 
   function update(next: Record<string, string | null>) {
@@ -132,13 +134,20 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
   const filtered = query.q !== "" || query.status !== "all";
   const newHref = adminRoutes.create(basePath, collection.slug);
 
+  const noun = (n: number) => (collection.upload ? (n === 1 ? "file" : "files") : (n === 1 ? collection.labels.singular : collection.labels.plural).toLowerCase());
+  const statusTabs = [
+    { value: "all", label: "All" },
+    { value: "published", label: "Published" },
+    { value: "draft", label: "Drafts" },
+  ];
+
   return (
-    <div className="xe:flex xe:flex-col xe:gap-6">
-      <header className="xe:flex xe:flex-wrap xe:items-end xe:justify-between xe:gap-4">
+    <div className="xe:flex xe:flex-col xe:gap-5">
+      <header className="xe:flex xe:flex-wrap xe:items-start xe:justify-between xe:gap-4">
         <div className="xe:flex xe:flex-col xe:gap-1">
-          <h1 className="xe:text-2xl xe:font-semibold xe:tracking-tight">{collection.labels.plural}</h1>
-          <p className="xe:text-muted-foreground">
-            {collection.admin.description ?? `${totalDocs.toLocaleString()} ${totalDocs === 1 ? "item" : "items"}`}
+          <h1 className="xe:text-[22px] xe:font-semibold xe:leading-tight xe:tracking-[-0.01em]">{collection.labels.plural}</h1>
+          <p className="xe:text-sm xe:text-muted-foreground">
+            {collection.admin.description ?? `${totalDocs.toLocaleString()} ${noun(totalDocs)}${filtered ? " match" : ""}`}
           </p>
         </div>
         <Link href={newHref} className={cn(buttonVariants(), "xe:gap-1.5")}>
@@ -146,34 +155,48 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
         </Link>
       </header>
 
-      <div className="xe:flex xe:flex-wrap xe:items-center xe:gap-3">
-        <div className="xe:relative xe:w-full xe:max-w-xs">
-          <RiSearchLine className="xe:pointer-events-none xe:absolute xe:left-3 xe:top-1/2 xe:size-4 xe:-translate-y-1/2 xe:text-muted-foreground" />
+      {/* Filters: status as underline tabs on one full-width rule, search at its right end. */}
+      <div className="xe:flex xe:flex-col-reverse xe:gap-3 xe:border-b xe:border-border xe:sm:flex-row xe:sm:items-end xe:sm:justify-between">
+        {collection.drafts ? (
+          <div role="tablist" aria-label="Status" className="xe:-mb-px xe:flex xe:gap-5">
+            {statusTabs.map((t) => {
+              const selected = query.status === t.value;
+              return (
+                <button
+                  key={t.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => update({ status: t.value, page: null })}
+                  className={cn(
+                    "xe:h-10 xe:border-b-2 xe:text-sm xe:transition-colors",
+                    selected ? "xe:border-brand xe:font-medium xe:text-foreground" : "xe:border-transparent xe:text-muted-foreground xe:hover:text-foreground",
+                  )}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : <span />}
+        <div className="xe:relative xe:w-full xe:pb-2 xe:sm:w-72">
+          <RiSearchLine className="xe:pointer-events-none xe:absolute xe:top-4 xe:left-2.5 xe:size-4 xe:-translate-y-1/2 xe:text-muted-foreground" />
           <Input
             ref={searchRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={`Search ${collection.labels.plural.toLowerCase()}`}
-            className="xe:pl-9 xe:pr-9"
+            className="xe:h-8 xe:pr-8 xe:pl-8"
             aria-label="Search"
           />
-          <Kbd className="xe:absolute xe:right-2 xe:top-1/2 xe:-translate-y-1/2">/</Kbd>
+          <Kbd className="xe:absolute xe:top-4 xe:right-2 xe:-translate-y-1/2">/</Kbd>
         </div>
-        {collection.drafts && (
-          <Tabs value={query.status} onValueChange={(v) => update({ status: String(v), page: null })}>
-            <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="published">Published</TabsTrigger>
-              <TabsTrigger value="draft">Drafts</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        )}
       </div>
 
       <div className={cn("xe:transition-opacity", pending && "xe:opacity-60")}>
         {rows.length === 0 ? (
-          <Card className="xe:p-0">
-            <Empty className="xe:py-16">
+          <div className="xe:rounded-lg xe:border xe:border-dashed xe:border-border">
+            <Empty className="xe:py-14">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
                   <Icon />
@@ -199,28 +222,25 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
                 )}
               </EmptyContent>
             </Empty>
-          </Card>
+          </div>
         ) : collection.upload ? (
-          <ul className="xe:grid xe:grid-cols-2 xe:gap-4 xe:sm:grid-cols-3 xe:lg:grid-cols-4">
+          <ul className="xe:grid xe:grid-cols-2 xe:gap-x-4 xe:gap-y-5 xe:sm:grid-cols-3 xe:lg:grid-cols-4 xe:xl:grid-cols-5">
             {rows.map((row, i) => (
               <li key={row.id}>
                 <Link
                   href={adminRoutes.edit(basePath, collection.slug, row.id)}
-                  className={cn(
-                    "xe:group xe:block xe:overflow-hidden xe:rounded-xl xe:border xe:border-border xe:bg-card xe:shadow-xs xe:transition-all xe:hover:-translate-y-0.5 xe:hover:shadow-md",
-                    i === active && "xe:ring-[3px] xe:ring-ring",
-                  )}
+                  className={cn("xe:group xe:flex xe:flex-col xe:gap-2 xe:rounded-md xe:outline-none", i === active && "xe:ring-2 xe:ring-ring xe:ring-offset-4 xe:ring-offset-background")}
                 >
-                  <div className="xe:grid xe:aspect-[4/3] xe:place-items-center xe:overflow-hidden xe:bg-muted">
+                  <div className="xe:grid xe:aspect-[4/3] xe:place-items-center xe:overflow-hidden xe:rounded-md xe:bg-muted xe:ring-1 xe:ring-border xe:transition-shadow xe:ring-inset xe:group-hover:ring-input">
                     {isImage(row) ? (
                       // biome-ignore lint/a11y/useAltText: decorative thumbnail, the title is right below
-                      <img src={row.url!} alt="" loading="lazy" className="xe:size-full xe:object-cover xe:transition-transform xe:duration-300 xe:group-hover:scale-[1.03]" />
+                      <img src={row.url!} alt="" loading="lazy" className="xe:size-full xe:object-cover" />
                     ) : (
                       <RiFileLine className="xe:size-8 xe:text-muted-foreground" />
                     )}
                   </div>
-                  <div className="xe:px-3 xe:py-2.5">
-                    <p className="xe:truncate xe:text-sm xe:font-medium">{row.title}</p>
+                  <div className="xe:min-w-0 xe:px-0.5">
+                    <p className="xe:truncate xe:text-sm xe:font-medium xe:group-hover:underline xe:underline-offset-4">{row.title}</p>
                     <p className="xe:truncate xe:text-xs xe:text-muted-foreground">{row.filename ?? row.mimeType}</p>
                   </div>
                 </Link>
@@ -228,43 +248,45 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
             ))}
           </ul>
         ) : (
-          <Card className="xe:overflow-hidden xe:p-0">
-            <Table>
-              <TableHeader>
-                <TableRow className="xe:hover:bg-transparent">
-                  <TableHead className="xe:pl-5">
-                    <button type="button" className="xe:inline-flex xe:items-center xe:gap-1" onClick={() => collection.admin.useAsTitle && toggleSort(collection.admin.useAsTitle)}>
-                      Title <SortIcon k={collection.admin.useAsTitle ?? ""} />
-                    </button>
+          <Table className="xe:table-fixed">
+            <TableHeader className="xe:[&_tr]:border-b-0">
+              <TableRow className="xe:hover:bg-transparent">
+                <TableHead className="xe:h-9 xe:w-auto xe:pl-0 xe:text-xs xe:font-normal xe:text-muted-foreground">
+                  <button type="button" className="xe:inline-flex xe:items-center xe:gap-1 xe:hover:text-foreground" onClick={() => collection.admin.useAsTitle && toggleSort(collection.admin.useAsTitle)}>
+                    {titleLabel} <SortIcon k={collection.admin.useAsTitle ?? ""} />
+                  </button>
+                </TableHead>
+                {columns.map((f) => (
+                  <TableHead key={f.name} className={cn("xe:hidden xe:h-9 xe:w-36 xe:text-xs xe:font-normal xe:text-muted-foreground xe:md:table-cell", f.type === "number" && "xe:text-right")}>
+                    {f.label}
                   </TableHead>
-                  {columns.map((f) => (
-                    <TableHead key={f.name} className="xe:hidden xe:md:table-cell">
-                      {f.label}
-                    </TableHead>
-                  ))}
-                  {collection.drafts && <TableHead>Status</TableHead>}
-                  <TableHead className="xe:pr-5 xe:text-right">
-                    <button type="button" className="xe:inline-flex xe:items-center xe:gap-1" onClick={() => toggleSort("updatedAt")}>
-                      Last edited <SortIcon k="updatedAt" />
-                    </button>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row, i) => (
+                ))}
+                {collection.drafts && <TableHead className="xe:h-9 xe:w-40 xe:text-xs xe:font-normal xe:text-muted-foreground">Status</TableHead>}
+                <TableHead className="xe:h-9 xe:w-32 xe:pr-0 xe:text-right xe:text-xs xe:font-normal xe:text-muted-foreground">
+                  <button type="button" className="xe:inline-flex xe:items-center xe:gap-1 xe:hover:text-foreground" onClick={() => toggleSort("updatedAt")}>
+                    Last edited <SortIcon k="updatedAt" />
+                  </button>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row, i) => {
+                const sub = subtitle ? row.values[subtitle.name] : null;
+                return (
                   <TableRow
                     key={row.id}
                     data-state={i === active ? "selected" : undefined}
-                    className="xe:relative xe:cursor-pointer"
+                    className="xe:relative xe:cursor-pointer xe:border-rule xe:hover:bg-muted/50 xe:data-[state=selected]:bg-accent"
                     onClick={() => router.push(adminRoutes.edit(basePath, collection.slug, row.id))}
                   >
-                    <TableCell className="xe:max-w-[28rem] xe:pl-5 xe:font-medium">
-                      <Link href={adminRoutes.edit(basePath, collection.slug, row.id)} className="xe:block xe:truncate" onClick={(e) => e.stopPropagation()}>
+                    <TableCell className="xe:py-2.5 xe:pl-0">
+                      <Link href={adminRoutes.edit(basePath, collection.slug, row.id)} className="xe:block xe:truncate xe:font-medium" onClick={(e) => e.stopPropagation()}>
                         {row.title}
                       </Link>
+                      {subtitle ? <p className="xe:truncate xe:text-[13px] xe:text-muted-foreground">{typeof sub === "string" && sub ? sub : "—"}</p> : null}
                     </TableCell>
                     {columns.map((f) => (
-                      <TableCell key={f.name} className="xe:hidden xe:max-w-[14rem] xe:truncate xe:text-muted-foreground xe:md:table-cell">
+                      <TableCell key={f.name} className={cn("xe:hidden xe:truncate xe:text-muted-foreground xe:md:table-cell", f.type === "number" && "xe:text-right xe:tabular-nums")}>
                         {renderValue(f, row.values[f.name])}
                       </TableCell>
                     ))}
@@ -273,14 +295,14 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
                         <StatusBadge status={row.status} />
                       </TableCell>
                     )}
-                    <TableCell className="xe:pr-5 xe:text-right xe:text-muted-foreground" title={formatDate(row.updatedAt)}>
-                      {timeAgo(row.updatedAt)}
+                    <TableCell className="xe:pr-0 xe:text-right xe:text-[13px] xe:text-muted-foreground" title={formatDate(row.updatedAt)}>
+                      <span suppressHydrationWarning>{timeAgo(row.updatedAt)}</span>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Card>
+                );
+              })}
+            </TableBody>
+          </Table>
         )}
       </div>
 

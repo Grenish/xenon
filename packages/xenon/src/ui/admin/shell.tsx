@@ -1,10 +1,11 @@
 "use client";
 import {
-  RiAddLine,
+  RiArrowRightSLine,
+  RiArrowRightUpLine,
   RiArrowUpDownLine,
   RiComputerLine,
-  RiDashboardLine,
   RiFileTextLine,
+  RiHome5Line,
   RiImageLine,
   RiLogoutBoxRLine,
   RiMenuLine,
@@ -17,7 +18,7 @@ import {
 } from "@remixicon/react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { type ComponentType, type ReactNode, useEffect, useState } from "react";
+import { type ComponentType, Fragment, type ReactNode, useEffect, useState } from "react";
 import { Avatar, AvatarFallback } from "../components/avatar";
 import { Button } from "../components/button";
 import {
@@ -37,16 +38,19 @@ import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
 import type { ClientCollection } from "../shared/client-config";
 import { adminRoutes } from "../shared/services";
-import { Wordmark } from "./auth-screen";
+import { ElementMark } from "./brand";
 import { CommandPalette } from "./command-palette";
 import { initials } from "./format";
 import { type AdminTheme, useAdminRuntime } from "./runtime";
+import { type Crumb, useShellBarContent } from "./shell-bar";
 
 type Icon = ComponentType<{ className?: string }>;
 
 export function collectionIcon(c: ClientCollection): Icon {
   return c.upload ? RiImageLine : RiFileTextLine;
 }
+
+/* -------------------------------------------------------------------------- sidebar */
 
 function NavLink({ href, icon: Icon, children, active, onNavigate }: { href: string; icon: Icon; children: ReactNode; active: boolean; onNavigate?: () => void }) {
   return (
@@ -55,39 +59,39 @@ function NavLink({ href, icon: Icon, children, active, onNavigate }: { href: str
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "xe:group xe:flex xe:h-8 xe:items-center xe:gap-2.5 xe:rounded-md xe:px-2.5 xe:text-[13.5px] xe:font-medium xe:transition-colors",
+        "xe:group xe:flex xe:h-8 xe:items-center xe:gap-2.5 xe:rounded-md xe:px-2.5 xe:text-sm xe:transition-colors",
         active
-          ? "xe:bg-sidebar-accent xe:text-sidebar-accent-foreground"
-          : "xe:text-sidebar-foreground/80 xe:hover:bg-sidebar-accent/60 xe:hover:text-sidebar-accent-foreground",
+          ? "xe:bg-sidebar-accent xe:font-medium xe:text-sidebar-accent-foreground"
+          : "xe:text-sidebar-foreground xe:hover:bg-sidebar-accent/60 xe:hover:text-sidebar-accent-foreground",
       )}
     >
-      <Icon className={cn("xe:size-[18px] xe:shrink-0", active ? "xe:text-foreground" : "xe:text-muted-foreground xe:group-hover:text-foreground")} />
+      <Icon className={cn("xe:size-4 xe:shrink-0", active ? "xe:text-foreground" : "xe:text-muted-foreground xe:group-hover:text-foreground")} />
       <span className="xe:truncate">{children}</span>
     </Link>
   );
 }
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
-  const { basePath, collections, user } = useAdmin();
+  const { basePath, collections } = useAdmin();
   const pathname = usePathname();
   const isActive = (href: string, exact = false) => (exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`));
 
   const groups = new Map<string, ClientCollection[]>();
   for (const c of collections) {
-    const group = c.admin.group ?? (c.upload ? "Media" : "Content");
+    const group = c.admin.group ?? (c.upload ? "Library" : "Content");
     groups.set(group, [...(groups.get(group) ?? []), c]);
   }
 
   return (
-    <nav className="xe:flex xe:flex-1 xe:flex-col xe:gap-6 xe:overflow-y-auto xe:px-3 xe:py-4" aria-label="Main">
-      <div className="xe:flex xe:flex-col xe:gap-0.5">
-        <NavLink href={adminRoutes.dashboard(basePath)} icon={RiDashboardLine} active={isActive(adminRoutes.dashboard(basePath), true)} onNavigate={onNavigate}>
-          Dashboard
+    <nav className="xe:flex xe:flex-1 xe:flex-col xe:gap-5 xe:overflow-y-auto xe:px-3 xe:pt-2 xe:pb-3" aria-label="Main">
+      <div className="xe:flex xe:flex-col xe:gap-px">
+        <NavLink href={adminRoutes.dashboard(basePath)} icon={RiHome5Line} active={isActive(adminRoutes.dashboard(basePath), true)} onNavigate={onNavigate}>
+          Overview
         </NavLink>
       </div>
       {[...groups].map(([group, items]) => (
-        <div key={group} className="xe:flex xe:flex-col xe:gap-0.5">
-          <p className="xe:px-2.5 xe:pb-1 xe:text-xs xe:font-medium xe:text-muted-foreground">{group}</p>
+        <div key={group} className="xe:flex xe:flex-col xe:gap-px">
+          <p className="xe:px-2.5 xe:pb-1.5 xe:text-xs xe:text-muted-foreground">{group}</p>
           {items.map((c) => (
             <NavLink key={c.slug} href={adminRoutes.list(basePath, c.slug)} icon={collectionIcon(c)} active={isActive(adminRoutes.list(basePath, c.slug))} onNavigate={onNavigate}>
               {c.labels.plural}
@@ -95,7 +99,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           ))}
         </div>
       ))}
-      <div className="xe:mt-auto xe:flex xe:flex-col xe:gap-0.5">
+      <div className="xe:mt-auto xe:flex xe:flex-col xe:gap-px">
         <NavLink href={adminRoutes.settings(basePath)} icon={RiSettings3Line} active={isActive(adminRoutes.settings(basePath))} onNavigate={onNavigate}>
           Settings
         </NavLink>
@@ -104,12 +108,33 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+/** Product and scope: the mark, the name, and the site this admin edits. */
 function Brand() {
   const { basePath } = useAdmin();
+  const [host, setHost] = useState("");
+  useEffect(() => setHost(window.location.host), []);
   return (
-    <Link href={adminRoutes.dashboard(basePath)} className="xe:flex xe:items-center xe:gap-2.5 xe:rounded-md xe:px-1 xe:py-1">
-      <Wordmark />
+    <Link href={adminRoutes.dashboard(basePath)} className="xe:flex xe:min-w-0 xe:items-center xe:gap-2.5 xe:rounded-md xe:px-1.5 xe:py-1 xe:transition-colors xe:hover:bg-sidebar-accent/60">
+      <ElementMark className="xe:size-7 xe:rounded-[6px] xe:text-[12.5px]" />
+      <span className="xe:flex xe:min-w-0 xe:flex-col">
+        <span className="xe:text-sm xe:font-semibold xe:leading-tight xe:tracking-[-0.01em]">Xenon</span>
+        <span className="xe:truncate xe:text-xs xe:leading-tight xe:text-muted-foreground" suppressHydrationWarning>{host || "Content"}</span>
+      </span>
     </Link>
+  );
+}
+
+function SearchButton({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="xe:flex xe:h-8 xe:w-full xe:items-center xe:gap-2 xe:rounded-md xe:border xe:border-border xe:bg-background xe:px-2.5 xe:text-sm xe:text-muted-foreground xe:transition-colors xe:hover:border-input xe:hover:text-foreground"
+    >
+      <RiSearchLine className="xe:size-4" />
+      <span className="xe:flex-1 xe:text-left">Search</span>
+      <Kbd className="xe:hidden xe:sm:inline-flex">⌘K</Kbd>
+    </button>
   );
 }
 
@@ -130,18 +155,18 @@ function UserMenu() {
         render={
           <button
             type="button"
-            className="xe:flex xe:w-full xe:items-center xe:gap-2.5 xe:rounded-md xe:p-2 xe:text-left xe:transition-colors xe:hover:bg-sidebar-accent/70 xe:data-[popup-open]:bg-sidebar-accent"
+            className="xe:flex xe:w-full xe:items-center xe:gap-2.5 xe:rounded-md xe:p-1.5 xe:text-left xe:transition-colors xe:hover:bg-sidebar-accent/60 xe:data-[popup-open]:bg-sidebar-accent"
           />
         }
       >
-        <Avatar className="xe:size-8">
-          <AvatarFallback className="xe:bg-muted xe:text-xs xe:font-semibold xe:text-foreground">{initials(user.name, user.email)}</AvatarFallback>
+        <Avatar className="xe:size-7">
+          <AvatarFallback className="xe:bg-brand-soft xe:text-[11px] xe:font-semibold xe:text-brand">{initials(user.name, user.email)}</AvatarFallback>
         </Avatar>
         <span className="xe:min-w-0 xe:flex-1">
-          <span className="xe:block xe:truncate xe:text-[13px] xe:font-medium">{user.name || user.email}</span>
-          <span className="xe:block xe:truncate xe:text-xs xe:text-muted-foreground">{user.role === "admin" ? "Admin" : "Editor"}</span>
+          <span className="xe:block xe:truncate xe:text-[13px] xe:font-medium xe:leading-tight">{user.name || user.email}</span>
+          <span className="xe:block xe:truncate xe:text-xs xe:leading-tight xe:text-muted-foreground">{user.role === "admin" ? "Admin" : "Editor"}</span>
         </span>
-        <RiArrowUpDownLine className="xe:size-4 xe:text-muted-foreground" />
+        <RiArrowUpDownLine className="xe:size-3.5 xe:text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" className="xe:w-60">
         <DropdownMenuGroup>
@@ -183,27 +208,99 @@ function UserMenu() {
   );
 }
 
-function SidebarContents({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarContents({ onNavigate, onSearch }: { onNavigate?: () => void; onSearch: () => void }) {
   return (
     <>
-      <div className="xe:flex xe:h-14 xe:items-center xe:px-4">
+      <div className="xe:flex xe:h-14 xe:items-center xe:px-3">
         <Brand />
       </div>
+      <div className="xe:px-3 xe:pb-3">
+        <SearchButton onOpen={onSearch} />
+      </div>
       <SidebarNav onNavigate={onNavigate} />
-      <div className="xe:border-t xe:border-sidebar-border xe:p-2">
+      <div className="xe:px-3 xe:pb-3">
         <UserMenu />
       </div>
     </>
   );
 }
 
-/** Signed-in layout: sidebar, top bar with search (⌘K), content area. */
+/* -------------------------------------------------------------------------- top bar */
+
+/** Where you are when a page doesn't say: derived from the route. */
+function useDefaultCrumbs(): Crumb[] {
+  const { basePath, collections } = useAdmin();
+  const pathname = usePathname();
+  if (pathname.startsWith(adminRoutes.settings(basePath))) return [{ label: "Settings" }];
+  const c = collections.find((col) => pathname.startsWith(adminRoutes.list(basePath, col.slug)));
+  if (c) return [{ label: c.admin.group ?? (c.upload ? "Library" : "Content") }, { label: c.labels.plural }];
+  return [{ label: "Overview" }];
+}
+
+function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
+  return (
+    <nav aria-label="Breadcrumb" className="xe:flex xe:min-w-0 xe:items-center xe:gap-1 xe:text-sm">
+      {crumbs.map((c, i) => {
+        const last = i === crumbs.length - 1;
+        return (
+          <Fragment key={`${c.label}-${i}`}>
+            {i > 0 ? <RiArrowRightSLine className="xe:hidden xe:size-4 xe:shrink-0 xe:text-muted-foreground/70 xe:sm:block" aria-hidden /> : null}
+            {c.href && !last ? (
+              <Link href={c.href} className="xe:hidden xe:shrink-0 xe:rounded-sm xe:px-1 xe:text-muted-foreground xe:transition-colors xe:hover:text-foreground xe:sm:inline">
+                {c.label}
+              </Link>
+            ) : (
+              <span aria-current={last ? "page" : undefined} className={cn("xe:truncate xe:px-1", last ? "xe:font-medium xe:text-foreground" : "xe:hidden xe:text-muted-foreground xe:sm:inline")}>
+                {c.label}
+              </span>
+            )}
+          </Fragment>
+        );
+      })}
+    </nav>
+  );
+}
+
+function TopBar({ onMenu }: { onMenu: () => void }) {
+  const bar = useShellBarContent();
+  const fallback = useDefaultCrumbs();
+  const crumbs = bar?.crumbs?.length ? bar.crumbs : fallback;
+  return (
+    <header className="xe:sticky xe:top-0 xe:z-30 xe:flex xe:h-12 xe:shrink-0 xe:items-center xe:gap-3 xe:bg-frame xe:pr-3 xe:pl-2 xe:lg:static xe:lg:pr-4 xe:lg:pl-1">
+      <Button variant="ghost" size="icon" className="xe:lg:hidden" onClick={onMenu} aria-label="Open navigation">
+        <RiMenuLine />
+      </Button>
+      <div className="xe:min-w-0 xe:flex-1">
+        <Breadcrumbs crumbs={crumbs} />
+      </div>
+      <div className="xe:flex xe:shrink-0 xe:items-center xe:gap-3">
+        {bar?.status}
+        {bar?.actions ?? (
+          <a
+            href="/"
+            target="_blank"
+            rel="noreferrer"
+            className="xe:inline-flex xe:h-8 xe:items-center xe:gap-1 xe:rounded-md xe:px-2 xe:text-sm xe:text-muted-foreground xe:transition-colors xe:hover:bg-sidebar-accent/60 xe:hover:text-foreground"
+          >
+            View site
+            <RiArrowRightUpLine className="xe:size-4" />
+          </a>
+        )}
+      </div>
+    </header>
+  );
+}
+
+/* -------------------------------------------------------------------------- shell */
+
+/**
+ * Signed-in layout. Desktop: a tinted frame (sidebar + 48px top bar, no rule between them) around a
+ * white sheet inset 8px from the window's right and bottom edges; the sheet is the scroll container.
+ * Phone and tablet: the frame folds away, the sheet is the screen, and the sidebar opens as a drawer.
+ */
 export function AdminShell({ children }: { children: ReactNode }) {
-  const { collections, basePath } = useAdmin();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const pathname = usePathname();
-  const current = collections.find((c) => pathname.startsWith(adminRoutes.list(basePath, c.slug)));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -217,45 +314,26 @@ export function AdminShell({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <div className="xe:flex xe:min-h-dvh">
-      <aside className="xe:sticky xe:top-0 xe:hidden xe:h-dvh xe:w-64 xe:shrink-0 xe:flex-col xe:border-r xe:border-sidebar-border xe:bg-sidebar xe:text-sidebar-foreground xe:lg:flex">
-        <SidebarContents />
+    <div className="xe:flex xe:min-h-dvh xe:bg-frame xe:lg:h-dvh xe:lg:overflow-hidden">
+      <aside className="xe:hidden xe:w-[232px] xe:shrink-0 xe:flex-col xe:bg-sidebar xe:text-sidebar-foreground xe:lg:flex">
+        <SidebarContents onSearch={() => setPaletteOpen(true)} />
       </aside>
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
         <SheetContent side="left" className="xe:flex xe:w-72 xe:flex-col xe:gap-0 xe:bg-sidebar xe:p-0" showCloseButton={false}>
           <SheetTitle className="xe:sr-only">Navigation</SheetTitle>
-          <SidebarContents onNavigate={() => setMobileOpen(false)} />
+          <SidebarContents onNavigate={() => setMobileOpen(false)} onSearch={() => { setMobileOpen(false); setPaletteOpen(true); }} />
         </SheetContent>
       </Sheet>
 
       <div className="xe:flex xe:min-w-0 xe:flex-1 xe:flex-col">
-        <header className="xe:sticky xe:top-0 xe:z-30 xe:flex xe:h-14 xe:items-center xe:gap-3 xe:border-b xe:border-border xe:bg-background/85 xe:px-4 xe:backdrop-blur-md xe:sm:px-6">
-          <Button variant="ghost" size="icon" className="xe:lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation">
-            <RiMenuLine />
-          </Button>
-          <button
-            type="button"
-            onClick={() => setPaletteOpen(true)}
-            className="xe:flex xe:h-9 xe:w-full xe:max-w-sm xe:items-center xe:gap-2 xe:rounded-lg xe:border xe:border-input xe:bg-card xe:px-3 xe:text-sm xe:text-muted-foreground xe:shadow-xs xe:transition-colors xe:hover:border-foreground/20 xe:hover:text-foreground"
-          >
-            <RiSearchLine className="xe:size-4" />
-            <span className="xe:flex-1 xe:text-left">Search or jump to…</span>
-            <Kbd className="xe:hidden xe:sm:inline-flex">⌘K</Kbd>
-          </button>
-          <div className="xe:ml-auto">
-            {current && (
-              <Link
-                href={adminRoutes.create(basePath, current.slug)}
-                className="xe:inline-flex xe:h-9 xe:items-center xe:gap-1.5 xe:rounded-lg xe:bg-primary xe:px-3.5 xe:text-sm xe:font-medium xe:text-primary-foreground xe:shadow-sm xe:transition-colors xe:hover:bg-primary/90"
-              >
-                <RiAddLine className="xe:size-4" />
-                <span className="xe:hidden xe:sm:inline">New {current.labels.singular.toLowerCase()}</span>
-              </Link>
-            )}
-          </div>
-        </header>
-        <main className="xe:mx-auto xe:w-full xe:max-w-6xl xe:flex-1 xe:px-4 xe:py-8 xe:sm:px-6 xe:lg:px-10">{children}</main>
+        <TopBar onMenu={() => setMobileOpen(true)} />
+        <main
+          id="xe-sheet"
+          className="xe:flex-1 xe:bg-background xe:lg:mr-2 xe:lg:mb-2 xe:lg:overflow-y-auto xe:lg:rounded-[var(--radius-sheet)] xe:lg:border xe:lg:border-border xe:lg:[scrollbar-width:thin]"
+        >
+          <div className="xe:mx-auto xe:w-full xe:max-w-[1200px] xe:px-4 xe:pt-6 xe:pb-12 xe:sm:px-6 xe:lg:px-8 xe:lg:pt-7 xe:has-[[data-xe-full]]:max-w-none xe:has-[[data-xe-full]]:p-0">{children}</div>
+        </main>
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
