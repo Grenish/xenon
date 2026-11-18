@@ -240,6 +240,8 @@ export interface XenonAuthConfig {
   secret?: string;
   /** Public base URL of the app, e.g. `https://example.com`. */
   baseURL?: string;
+  /** Extra origins allowed to call auth endpoints (CSRF protection). */
+  trustedOrigins?: readonly string[];
   /** API keys accepted by the REST API (`Authorization: Bearer <key>`). */
   apiKeys?: readonly { key: string; role: XenonRole; name?: string }[];
 }

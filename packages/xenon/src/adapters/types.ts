@@ -1,8 +1,13 @@
 /**
- * Adapter contracts — DRAFT for Phase 2. Shapes may still change before Phase 2 starts;
- * coordinate with the coordinator before implementing against them.
+ * Adapter contracts (Phase 2). Semantics are specified in docs/CONTRACTS.md §2 and enforced by
+ * the shared conformance suite in test/adapters/. Change only via the coordinator.
  */
+import type { BetterAuthOptions } from "better-auth";
 import type { DocumentStatus } from "../core/types";
+
+/* -------------------------------------------------------------------------- */
+/*                                  Database                                  */
+/* -------------------------------------------------------------------------- */
 
 /** A raw row of the polymorphic `xenon_documents` table. */
 export interface DocumentRecord {
@@ -10,7 +15,7 @@ export interface DocumentRecord {
   collection: string;
   slug: string | null;
   status: DocumentStatus;
-  /** Published data (what public reads see). */
+  /** Live (published) data. `{}` for documents that were never published. */
   data: Record<string, unknown>;
   /** Unpublished working copy, or `null` when there are no pending changes. */
   draftData: Record<string, unknown> | null;
@@ -18,28 +23,41 @@ export interface DocumentRecord {
   updatedAt: Date;
 }
 
-export type WhereOperator = {
+export interface WhereOperators {
   equals?: unknown;
   not_equals?: unknown;
   in?: readonly unknown[];
   not_in?: readonly unknown[];
-  contains?: string;
+  contains?: unknown;
   gt?: number | string;
   gte?: number | string;
   lt?: number | string;
   lte?: number | string;
   exists?: boolean;
-};
+}
 
-/** Field path → operator. Top-level keys may also be system keys (`slug`, `status`, ...). */
-export type Where = { [field: string]: WhereOperator | Where[] | undefined; and?: Where[]; or?: Where[] };
+/**
+ * Filter. Keys are system keys (`id`, `slug`, `status`, `createdAt`, `updatedAt`) or top-level
+ * data field names. Sibling keys and sibling operators are ANDed.
+ */
+export type Where = {
+  and?: Where[];
+  or?: Where[];
+} & { [field: string]: WhereOperators | Where[] | undefined };
 
 export interface FindArgs {
   collection: string;
+  /**
+   * `published`: only `status = "published"` documents, fields read from `data`.
+   * `draft`: all documents, fields read from `draftData ?? data`.
+   */
+  source: "published" | "draft";
   where?: Where;
-  /** Field name; prefix with `-` for descending. Default `-createdAt`. */
+  /** Field or system key; `-` prefix = descending. Default `-createdAt`. Ties broken by `id`. */
   sort?: string;
+  /** Default 10. `0` = no limit. */
   limit?: number;
+  /** 1-based. Default 1. */
   page?: number;
 }
 
@@ -63,20 +81,51 @@ export interface CreateRecordInput {
 
 export type UpdateRecordInput = Partial<Omit<CreateRecordInput, "collection">>;
 
-export interface DatabaseAdapter {
-  readonly name: string;
-  /** Idempotent: ensure tables/indexes exist. */
-  init?(): Promise<void>;
-  find(args: FindArgs): Promise<PaginatedResult<DocumentRecord>>;
-  findById(collection: string, id: string): Promise<DocumentRecord | null>;
-  create(input: CreateRecordInput): Promise<DocumentRecord>;
-  update(collection: string, id: string, input: UpdateRecordInput): Promise<DocumentRecord | null>;
-  delete(collection: string, id: string): Promise<boolean>;
+/** Thrown by adapters when `(collection, slug)` would no longer be unique. */
+export class SlugConflictError extends Error {
+  override name = "SlugConflictError";
+  constructor(
+    public readonly collection: string,
+    public readonly slug: string,
+  ) {
+    super(`[xenon] Slug "${slug}" is already used in collection "${collection}".`);
+  }
 }
 
+export interface DatabaseAdapter {
+  readonly name: string;
+  /** Idempotent: create tables/indexes if missing. Called once before first use. */
+  init(): Promise<void>;
+  find(args: FindArgs): Promise<PaginatedResult<DocumentRecord>>;
+  findById(collection: string, id: string): Promise<DocumentRecord | null>;
+  /** Generates `id` and timestamps. Throws `SlugConflictError` on duplicate slug. */
+  create(input: CreateRecordInput): Promise<DocumentRecord>;
+  /** Bumps `updatedAt`. Returns `null` when not found. Throws `SlugConflictError` on duplicate slug. */
+  update(collection: string, id: string, input: UpdateRecordInput): Promise<DocumentRecord | null>;
+  /** Returns `false` when not found. */
+  delete(collection: string, id: string): Promise<boolean>;
+  /**
+   * Returns the BetterAuth `database` option for this backend, after ensuring the auth tables
+   * described by `authOptions` exist. Called once, after `init()`.
+   */
+  getAuthDatabase(authOptions: BetterAuthOptions): Promise<NonNullable<BetterAuthOptions["database"]>>;
+  /** Release connections (tests, scripts). */
+  close?(): Promise<void>;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                   Storage                                  */
+/* -------------------------------------------------------------------------- */
+
 export interface UploadFileInput {
-  /** Storage key, e.g. `media/2026/11/photo.jpg`. */
+  /** Storage key, e.g. `media/2026/11/k3j2h-photo.jpg`. Generated by the Local API. */
   key: string;
+  body: Uint8Array;
+  contentType: string;
+  size: number;
+}
+
+export interface StoredFile {
   body: Uint8Array | ReadableStream<Uint8Array>;
   contentType: string;
   size: number;
@@ -85,7 +134,13 @@ export interface UploadFileInput {
 export interface StorageAdapter {
   readonly name: string;
   upload(file: UploadFileInput): Promise<{ key: string; url: string }>;
+  /** Must not throw when the key does not exist. */
   delete(key: string): Promise<void>;
   /** Public URL for a stored key. */
   getUrl(key: string): string;
+  /**
+   * Optional: stream a stored file. Adapters without a public origin (local disk) implement this;
+   * the REST handler then serves files at `{api.path}/_files/{key}`.
+   */
+  read?(key: string): Promise<StoredFile | null>;
 }

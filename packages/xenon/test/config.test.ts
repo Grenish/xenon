@@ -25,6 +25,9 @@ function expectConfigError(collections: unknown[], fragments: string[]) {
 }
 
 describe("defineConfig definition-time errors", () => {
+  test("rejects the reserved auth collection slug", () => {
+    expectConfigError([{ slug: "auth", fields: {} }], ["auth", "slug"]);
+  });
   test("rejects duplicate collection slugs", () => {
     expectConfigError([
       { slug: "posts", fields: { title: text() } },

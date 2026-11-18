@@ -8,6 +8,8 @@ export class XenonConfigError extends Error {
 
 const SLUG_RE = /^[a-z][a-z0-9-]*$/;
 const RESERVED_KEYS = new Set<string>(SYSTEM_KEYS);
+/** Collide with REST routes (`{api}/auth/*`). `_`-prefixed slugs are already invalid. */
+const RESERVED_COLLECTION_SLUGS = new Set(["auth"]);
 const UPLOAD_KEY_SET = new Set<string>(UPLOAD_KEYS);
 
 function fail(collection: string, path: string | null, message: string): never {
@@ -89,6 +91,9 @@ export function defineConfig<const Cs extends readonly AnyCollection[]>(
       throw new XenonConfigError(
         `[xenon] Invalid collection slug "${String(c.slug)}": use lowercase letters, digits and dashes, starting with a letter.`,
       );
+    }
+    if (RESERVED_COLLECTION_SLUGS.has(c.slug)) {
+      throw new XenonConfigError(`[xenon] Collection slug "${c.slug}" is reserved.`);
     }
     if (bySlug.has(c.slug)) {
       throw new XenonConfigError(`[xenon] Duplicate collection slug "${c.slug}".`);

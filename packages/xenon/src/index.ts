@@ -6,6 +6,8 @@ export { text, textarea, number, boolean, select, richText, media, relation } fr
 export { defineCollection } from "./core/collection";
 export type { DefineCollectionInput } from "./core/collection";
 export { defineConfig, getCollection, XenonConfigError } from "./core/config";
+export { XenonError, isXenonError } from "./core/errors";
+export type { XenonErrorCode } from "./core/errors";
 export {
   buildCollectionSchema,
   validateCollectionData,
@@ -16,3 +18,4 @@ export type { ValidationIssue, ValidationMode, ValidationResult } from "./core/v
 export { SYSTEM_KEYS, UPLOAD_KEYS } from "./core/types";
 export type * from "./core/types";
 export type * from "./adapters/types";
+export { SlugConflictError } from "./adapters/types";

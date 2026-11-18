@@ -7,3 +7,4 @@ dist
 !.env.example
 .DS_Store
 .xenon-uploads
+.xenon

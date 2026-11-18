@@ -16,6 +16,7 @@ Several AI agents work in this repo **at the same time, in the same working tree
   you are assigned there. Need a change elsewhere? Message the coordinator instead.
 - **Public API contract:** `docs/CONTRACTS.md`. Build/test against it; don't change it unilaterally.
 - **Decisions log:** `docs/DECISIONS.md`.
+- **Handoff:** `docs/HANDOFF.md` — if the coordinator is unavailable, Codex acts as interim coordinator from it.
 
 ### If you are a newly arriving agent
 1. Read this file, `docs/COORDINATION.md`, `docs/CONTRACTS.md`.

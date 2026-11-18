@@ -1,8 +1,19 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["bun"],
-    "noEmit": true
+    "types": [
+      "bun"
+    ],
+    "noEmit": true,
+    "paths": {
+      "xenon-cms/client": [
+        "./src/ui/client.ts"
+      ]
+    }
   },
-  "include": ["src", "test", "tsup.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "tsup.config.ts"
+  ]
 }

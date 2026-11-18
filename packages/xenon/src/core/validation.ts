@@ -147,7 +147,15 @@ export function buildCollectionSchema<C extends AnyCollection, M extends Validat
       const parsed = objectSchema.safeParse(input);
       let ok = parsed.success;
       if (!parsed.success) {
-        for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, input: undefined } as never);
+        const record = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
+        for (const issue of parsed.error.issues) {
+          // A missing / null value on a required field reads better as "required" than as a type error.
+          const key = issue.path.length === 1 ? issue.path[0] : undefined;
+          const missing =
+            typeof key === "string" && key in fields && (record[key] === undefined || record[key] === null);
+          const message = missing ? "This field is required" : issue.message;
+          ctx.addIssue({ ...issue, message, input: undefined } as never);
+        }
       }
       if (typeof input === "object" && input !== null && !Array.isArray(input)) {
         const record = input as Record<string, unknown>;
