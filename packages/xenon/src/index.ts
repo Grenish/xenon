@@ -18,4 +18,4 @@ export type { ValidationIssue, ValidationMode, ValidationResult } from "./core/v
 export { SYSTEM_KEYS, UPLOAD_KEYS } from "./core/types";
 export type * from "./core/types";
 export type * from "./adapters/types";
-export { SlugConflictError } from "./adapters/types";
+export { SlugConflictError, UpdateConflictError } from "./adapters/types";

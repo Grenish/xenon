@@ -21,6 +21,7 @@ import { useAdmin } from "../shared/admin-context";
 import type { ClientCollection, ClientField } from "../shared/client-config";
 import { adminRoutes, type DocSummary } from "../shared/services";
 import { StatusBadge, formatDate, timeAgo } from "./format";
+import { DocPeers } from "./presence";
 import { collectionIcon } from "./shell";
 
 export interface ListRow extends DocSummary {
@@ -280,9 +281,12 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
                     onClick={() => router.push(adminRoutes.edit(basePath, collection.slug, row.id))}
                   >
                     <TableCell className="xe:py-2.5 xe:pl-0">
-                      <Link href={adminRoutes.edit(basePath, collection.slug, row.id)} className="xe:block xe:truncate xe:font-medium" onClick={(e) => e.stopPropagation()}>
-                        {row.title}
-                      </Link>
+                      <span className="xe:flex xe:min-w-0 xe:items-center xe:gap-2">
+                        <Link href={adminRoutes.edit(basePath, collection.slug, row.id)} className="xe:truncate xe:font-medium" onClick={(e) => e.stopPropagation()}>
+                          {row.title}
+                        </Link>
+                        <DocPeers collection={collection.slug} id={row.id} />
+                      </span>
                       {subtitle ? <p className="xe:truncate xe:text-[13px] xe:text-muted-foreground">{typeof sub === "string" && sub ? sub : "—"}</p> : null}
                     </TableCell>
                     {columns.map((f) => (

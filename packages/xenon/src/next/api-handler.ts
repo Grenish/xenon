@@ -2,6 +2,8 @@ import { isXenonError, XenonError } from "../core/errors";
 import type { XenonConfig } from "../core/types";
 import type { UploadFile, XenonInstance } from "../server/types";
 import { keySegments } from "../storage/keys";
+import { resolveSecret } from "../auth";
+import { defaultPresenceStore, verifyPresenceToken } from "../server/presence";
 import { parseDraft, parseQuery } from "./query";
 import { getXenon } from "./xenon";
 
@@ -80,6 +82,53 @@ function requireTrustedOrigin(request: Request, config: XenonConfig): void {
   throw new XenonError("FORBIDDEN", "Cookie-authenticated writes require a trusted Origin header.");
 }
 
+/**
+ * `If-Match: "<updatedAt ISO>"` on PATCH = optimistic concurrency (409 CONFLICT when the document has
+ * been saved since). Weak validators and `*` are ignored.
+ */
+function parseIfMatch(request: Request): string | undefined {
+  const value = request.headers.get("if-match")?.trim();
+  if (!value || value === "*" || value.startsWith("W/")) return undefined;
+  return value.replace(/^"|"$/g, "");
+}
+
+const PRESENCE_HEADERS = { "cache-control": "no-store" };
+const shortString = (value: unknown, max: number): string | undefined =>
+  typeof value === "string" && value.length > 0 && value.length <= max ? value : undefined;
+
+/**
+ * Admin presence heartbeat. Authenticated by the signed presence token in the body (no session or
+ * database lookup), so the token can't be used cross-site the way a cookie could.
+ */
+async function handlePresence(request: Request, config: XenonConfig): Promise<Response> {
+  let input: Record<string, unknown>;
+  try {
+    // sendBeacon posts text/plain; parse the body as JSON whatever the content type says.
+    const raw = await request.text();
+    if (raw.length > 4096) throw new Error("too large");
+    input = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new XenonError("BAD_REQUEST", "Invalid presence payload.");
+  }
+  const user = await verifyPresenceToken(resolveSecret(config), input.token);
+  if (!user) return Response.json({ errors: [{ message: "Presence token expired." }] }, { status: 401, headers: PRESENCE_HEADERS });
+  const tab = shortString(input.tab, 64);
+  if (!tab) throw new XenonError("BAD_REQUEST", "Invalid presence payload.");
+  const store = config.presence || defaultPresenceStore();
+  if (input.leave === true) {
+    await store.leave(user.id, tab);
+    return new Response(null, { status: 204, headers: PRESENCE_HEADERS });
+  }
+  const loc = input.location as Record<string, unknown> | null | undefined;
+  const collection = loc && typeof loc === "object" ? shortString(loc.collection, 64) : undefined;
+  const location = collection && config.collections.some((c) => c.slug === collection)
+    ? { collection, id: shortString((loc as Record<string, unknown>).id, 128), title: typeof (loc as Record<string, unknown>).title === "string" ? ((loc as Record<string, unknown>).title as string).slice(0, 160) : undefined }
+    : null;
+  const intent = input.intent === "edit" || input.intent === "takeover" ? input.intent : "view";
+  const snapshot = await store.beat({ tab, user, location, intent, version: shortString(input.version, 40) });
+  return Response.json(snapshot, { headers: PRESENCE_HEADERS });
+}
+
 /** Catch-all REST handlers. Every document operation enforces the Local API access rules. */
 export function createApiHandler<Cfg extends XenonConfig>(config: Cfg, options?: { xenon?: XenonInstance<Cfg> }) {
   // Route segments are checked at runtime against getCollection before reaching the Local API.
@@ -90,6 +139,10 @@ export function createApiHandler<Cfg extends XenonConfig>(config: Cfg, options?:
       const { slug: segments } = await context.params;
       const [slug, id, action] = segments ?? [];
       if (slug === "auth") return await xenon.handleAuthRequest(request);
+      if (slug === "_presence" && segments.length === 1) {
+        if (request.method !== "POST" || config.presence === false) throw new XenonError("NOT_FOUND", "Route not found.");
+        return await handlePresence(request, config);
+      }
       if (slug === "_files" && request.method === "GET" && segments.length > 1) {
         const key = segments.slice(1).join("/");
         try { keySegments(key); } catch { throw new XenonError("BAD_REQUEST", "Unsafe file key."); }
@@ -122,7 +175,7 @@ export function createApiHandler<Cfg extends XenonConfig>(config: Cfg, options?:
         }
         case "PATCH": {
           if (!id) throw new XenonError("NOT_FOUND", "Route not found.");
-          return Response.json(await xenon.update({ ...shared, id, ...await parseBody(request), draft: parseDraft(params) }));
+          return Response.json(await xenon.update({ ...shared, id, ...await parseBody(request), draft: parseDraft(params), expectedUpdatedAt: parseIfMatch(request) }));
         }
         case "DELETE": {
           if (!id) throw new XenonError("NOT_FOUND", "Route not found.");

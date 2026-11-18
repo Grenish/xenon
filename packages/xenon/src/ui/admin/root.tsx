@@ -8,6 +8,7 @@ import type { ClientCollection } from "../shared/client-config";
 import type { AdminUserInfo } from "../shared/services";
 import { type AdminAction, AdminRuntimeProvider, useServices } from "./runtime";
 import { type AdminTheme, useAdminTheme, useSystemDark } from "./theme-store";
+import { PresenceHeartbeat } from "./presence";
 import { AdminShell } from "./shell";
 
 export interface AdminRootProps {
@@ -17,21 +18,24 @@ export interface AdminRootProps {
   action: AdminAction;
   collections: ClientCollection[];
   user: AdminUserInfo | null;
+  /** Signed presence token (null when presence is off). */
+  presenceToken?: string | null;
   children: ReactNode;
 }
 
-function SignedIn({ basePath, apiPath, collections, user, children }: Omit<AdminRootProps, "theme" | "action" | "user"> & { user: AdminUserInfo }) {
+function SignedIn({ basePath, apiPath, collections, user, presenceToken, children }: Omit<AdminRootProps, "theme" | "action" | "user"> & { user: AdminUserInfo }) {
   const services = useServices();
   const value = useMemo(() => ({ basePath, apiPath, collections, user, services }), [basePath, apiPath, collections, user, services]);
   return (
     <AdminProvider value={value}>
+      <PresenceHeartbeat token={presenceToken ?? null} />
       <AdminShell>{children}</AdminShell>
     </AdminProvider>
   );
 }
 
 /** Root of the admin: scoped `.xenon-admin` element, theme, portals, toasts and runtime services. */
-export function AdminRoot({ theme, basePath, apiPath, action, collections, user, children }: AdminRootProps) {
+export function AdminRoot({ theme, basePath, apiPath, action, collections, user, presenceToken, children }: AdminRootProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
   const current = useAdminTheme(theme);
@@ -59,7 +63,7 @@ export function AdminRoot({ theme, basePath, apiPath, action, collections, user,
         <TooltipProvider delay={400}>
           <AdminRuntimeProvider basePath={basePath} apiPath={apiPath} action={action} theme={theme}>
             {user ? (
-              <SignedIn basePath={basePath} apiPath={apiPath} collections={collections} user={user}>
+              <SignedIn basePath={basePath} apiPath={apiPath} collections={collections} user={user} presenceToken={presenceToken}>
                 {children}
               </SignedIn>
             ) : (

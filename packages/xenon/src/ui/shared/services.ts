@@ -54,12 +54,14 @@ export interface SearchResult {
 
 export interface AdminServices {
   /** Create (no `id`) or update. `draft: true` = save draft, otherwise publish. */
-  save(input: { collection: string; id?: string; data: Record<string, unknown>; draft: boolean }): Promise<ActionResult<AdminDoc>>;
+  save(input: { collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string }): Promise<ActionResult<AdminDoc>>;
+  /** Fresh copy of one document (after someone else saved it). */
+  get(input: { collection: string; id: string }): Promise<ActionResult<AdminDoc>>;
   unpublish(input: { collection: string; id: string }): Promise<ActionResult<AdminDoc>>;
   remove(input: { collection: string; id: string }): Promise<ActionResult<{ id: string }>>;
   search(input: SearchInput): Promise<ActionResult<SearchResult>>;
   /** Upload to an upload collection (create, or replace the file when `id` is given). */
-  upload(input: { collection: string; id?: string; file: File; data: Record<string, unknown> }): Promise<ActionResult<AdminDoc>>;
+  upload(input: { collection: string; id?: string; file: File; data: Record<string, unknown>; expectedUpdatedAt?: string }): Promise<ActionResult<AdminDoc>>;
 }
 
 export interface AdminUserInfo {

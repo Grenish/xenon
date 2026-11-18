@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "../components/dropdown-menu";
 import { Kbd } from "../components/kbd";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/popover";
 import { Sheet, SheetContent, SheetTitle } from "../components/sheet";
 import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
@@ -42,7 +43,9 @@ import { ElementMark } from "./brand";
 import { CommandPalette } from "./command-palette";
 import { initials } from "./format";
 import { type AdminTheme, useAdminRuntime } from "./runtime";
+import { AvatarStack, dedupe, displayName, PersonAvatar, usePresence } from "./presence";
 import { type Crumb, useShellBarContent } from "./shell-bar";
+import type { PresencePeer } from "../../adapters/types";
 
 type Icon = ComponentType<{ className?: string }>;
 
@@ -227,6 +230,53 @@ function SidebarContents({ onNavigate, onSearch }: { onNavigate?: () => void; on
 
 /* -------------------------------------------------------------------------- top bar */
 
+/** Teammates online right now, and what each is doing. Hidden when you're alone. */
+function TeamPresence() {
+  const { user, basePath, collections } = useAdmin();
+  const { snapshot } = usePresence();
+  const pathname = usePathname();
+  // People on the open document are shown by the editor itself; list everyone else here.
+  const [, docCollection, docId] = pathname.slice(`${basePath}/collections`.length).split("/");
+  const onThisDoc = (p: PresencePeer) => pathname.startsWith(`${basePath}/collections/`) && !!docId && p.location?.collection === docCollection && p.location?.id === docId;
+  const people = dedupe((snapshot?.peers ?? []).filter((p) => p.user.id !== user.id && !onThisDoc(p)));
+  if (!people.length) return null;
+  const where = (p: PresencePeer) => {
+    const c = p.location ? collections.find((col) => col.slug === p.location!.collection) : undefined;
+    if (!p.location || !c) return { label: "Overview", href: adminRoutes.dashboard(basePath) };
+    if (!p.location.id) return { label: `Browsing ${c.labels.plural.toLowerCase()}`, href: adminRoutes.list(basePath, c.slug) };
+    const title = p.location.title?.trim() || `an untitled ${c.labels.singular.toLowerCase()}`;
+    return { label: `${p.editing ? "Editing" : "Viewing"} ${title}`, href: adminRoutes.edit(basePath, c.slug, p.location.id) };
+  };
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={<button type="button" aria-label={`${people.length} ${people.length === 1 ? "teammate" : "teammates"} online`} className="xe:flex xe:h-8 xe:items-center xe:rounded-md xe:px-1.5 xe:transition-colors xe:hover:bg-sidebar-accent/60" />}
+      >
+        <AvatarStack peers={people} max={4} ringClass="xe:ring-frame" />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="xe:w-80 xe:gap-1 xe:p-1.5">
+        <p className="xe:px-2 xe:pt-1 xe:pb-1.5 xe:text-xs xe:text-muted-foreground">Online now</p>
+        <ul className="xe:flex xe:flex-col">
+          {people.map((p) => {
+            const w = where(p);
+            return (
+              <li key={p.user.id}>
+                <Link href={w.href} className="xe:flex xe:items-center xe:gap-2.5 xe:rounded-md xe:px-2 xe:py-1.5 xe:transition-colors xe:hover:bg-muted">
+                  <PersonAvatar user={p.user} editing={p.editing} />
+                  <span className="xe:min-w-0 xe:flex-1">
+                    <span className="xe:block xe:truncate xe:text-[13px] xe:font-medium">{displayName(p.user)}</span>
+                    <span className="xe:block xe:truncate xe:text-xs xe:text-muted-foreground">{w.label}</span>
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /** Where you are when a page doesn't say: derived from the route. */
 function useDefaultCrumbs(): Crumb[] {
   const { basePath, collections } = useAdmin();
@@ -274,6 +324,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
         <Breadcrumbs crumbs={crumbs} />
       </div>
       <div className="xe:flex xe:shrink-0 xe:items-center xe:gap-3">
+        <TeamPresence />
         {bar?.status}
         {bar?.actions ?? (
           <a

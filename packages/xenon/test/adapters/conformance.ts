@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { SlugConflictError } from "../../src/adapters/types";
+import { SlugConflictError, UpdateConflictError } from "../../src/adapters/types";
 import type { CreateRecordInput, DatabaseAdapter, DocumentRecord, Where } from "../../src/adapters/types";
 
 /** Every database implementation runs these tests through the public adapter interface. */
@@ -59,6 +59,28 @@ export function runDatabaseAdapterConformance(name: string, factory: () => Promi
       expect((await db.update("posts", original.id, { draftData: null, slug: null }))?.draftData).toBeNull();
       expect((await db.findById("posts", original.id))?.slug).toBeNull();
       expect(await db.update("posts", crypto.randomUUID(), {})).toBeNull();
+    });
+
+    test("updatedAt is strictly increasing, even for back-to-back updates", async () => {
+      const row = await create({ title: "Hello" });
+      let previous = row.updatedAt.getTime();
+      for (let i = 0; i < 5; i++) {
+        const next = await db.update("posts", row.id, { data: { title: `v${i}` } });
+        expect(next!.updatedAt.getTime()).toBeGreaterThan(previous);
+        previous = next!.updatedAt.getTime();
+      }
+    });
+
+    test("ifUpdatedAt updates only the version it names (optimistic concurrency)", async () => {
+      const row = await create({ title: "Hello" });
+      const first = await db.update("posts", row.id, { data: { title: "First" } }, { ifUpdatedAt: row.updatedAt });
+      expect(first?.data).toEqual({ title: "First" });
+      // The original version is now stale.
+      await expect(db.update("posts", row.id, { data: { title: "Stale" } }, { ifUpdatedAt: row.updatedAt })).rejects.toBeInstanceOf(UpdateConflictError);
+      expect((await db.findById("posts", row.id))?.data).toEqual({ title: "First" });
+      // The current version works; a missing row is still "not found", not a conflict.
+      expect((await db.update("posts", row.id, { data: { title: "Second" } }, { ifUpdatedAt: first!.updatedAt }))?.data).toEqual({ title: "Second" });
+      expect(await db.update("posts", crypto.randomUUID(), { data: {} }, { ifUpdatedAt: row.updatedAt })).toBeNull();
     });
 
     test("delete returns true once, then false", async () => {

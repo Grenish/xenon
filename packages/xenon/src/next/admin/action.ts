@@ -4,7 +4,8 @@ import type { AnyCollection, XenonConfig, XenonRole, XenonUser } from "../../cor
 import type { DocumentRecord } from "../../adapters/types";
 import type { XenonInstance } from "../../server/types";
 import type { AccountSession, ActionResult, AdminDoc, AdminUserInfo, DocSummary, SearchResult } from "../../ui/shared/services";
-import { toRole } from "../../auth";
+import { resolveSecret, toRole } from "../../auth";
+import { signPresenceToken } from "../../server/presence";
 import { getXenon } from "../xenon";
 
 /**
@@ -16,7 +17,7 @@ export type AdminActionInput =
   | { type: "auth.logout" }
   | { type: "auth.setup"; name: string; email: string; password: string }
   | { type: "doc.get"; collection: string; id: string }
-  | { type: "doc.save"; collection: string; id?: string; data: Record<string, unknown>; draft: boolean }
+  | { type: "doc.save"; collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string }
   | { type: "doc.unpublish"; collection: string; id: string }
   | { type: "doc.remove"; collection: string; id: string }
   | { type: "doc.search"; collection: string; query?: string; page?: number; limit?: number; ids?: string[] }
@@ -29,7 +30,8 @@ export type AdminActionInput =
   | { type: "account.changePassword"; currentPassword: string; newPassword: string }
   | { type: "account.sessions" }
   | { type: "account.revokeSession"; sessionId: string }
-  | { type: "account.revokeOtherSessions" };
+  | { type: "account.revokeOtherSessions" }
+  | { type: "presence.token" };
 
 export type AdminActionResult = ActionResult<unknown>;
 
@@ -176,10 +178,18 @@ export async function runAdminAction(config: XenonConfig, input: AdminActionInpu
       case "doc.save": {
         collectionOf(input.collection);
         const doc = input.id
-          ? await xenon.update({ ...ctx, collection: input.collection, id: input.id, data: input.data as never, draft: input.draft })
+          ? await xenon.update({
+              ...ctx, collection: input.collection, id: input.id, data: input.data as never, draft: input.draft,
+              expectedUpdatedAt: typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : undefined,
+            })
           : await xenon.create({ ...ctx, collection: input.collection, data: input.data as never, draft: input.draft });
         const id = (doc as { id: string }).id;
         return ok(await loadAdminDoc(xenon, config, input.collection, id, user));
+      }
+
+      case "presence.token": {
+        if (config.presence === false || user.id.startsWith("apikey:")) throw new XenonError("NOT_FOUND", "Presence is turned off.");
+        return ok(await signPresenceToken(resolveSecret(config), { id: user.id, name: user.name ?? null, email: user.email }));
       }
 
       case "doc.unpublish": {

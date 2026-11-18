@@ -136,6 +136,12 @@ new S3StorageAdapter({                                    // S3 and Cloudflare R
 });
 ```
 
+> **PGlite is single-process.** Only one process may open a PGlite folder at a time; Xenon enforces
+> this with a `{dataDir}.lock` file and a clear error. `next build` prerenders in several worker
+> processes, so with PGlite build with one worker (`experimental: { cpus: 1 }` in `next.config.ts`),
+> and don't run a build while `next dev` is using the same folder. Use `DATABASE_URL` (a real
+> Postgres server) for anything multi-process.
+
 ## 3. Mount the REST API
 
 ```ts
@@ -157,7 +163,8 @@ export const { GET, POST, PATCH, DELETE } = createApiHandler(config);
 | `/api/xenon/auth/*` | BetterAuth endpoints |
 | `GET /api/xenon/_files/{key}` | files stored by `LocalStorageAdapter` |
 
-`?draft=true` on `POST`/`PATCH` saves a draft instead of publishing. Where operators: `equals`,
+`?draft=true` on `POST`/`PATCH` saves a draft instead of publishing. Send
+`If-Match: "<updatedAt>"` with a `PATCH` to refuse the write (409) when someone saved in between. Where operators: `equals`,
 `not_equals`, `in`, `not_in`, `contains`, `gt`, `gte`, `lt`, `lte`, `exists`, combined with `and` / `or`.
 Published documents are readable by anyone by default; drafts and writes need a signed-in session
 or an API key (`Authorization: Bearer <key>`). Errors come back as `{ errors: [{ message, path? }] }`.
@@ -191,6 +198,19 @@ from **Team**. Editors can manage content but not users.
 
 The admin's styles are prefixed (`xe:`) and scoped to a `.xenon-admin` root, so they don't collide
 with your site's CSS. Change the paths with `admin: { path }` and `api: { path }` in `defineConfig`.
+
+### Team presence
+
+When several people work in the admin, each one sees who is online and where, avatars on the
+documents others have open, and a soft lock: the first person to open a document edits it, others
+see it read-only (with the editor's saves appearing live) and can **Take over**. Every save also
+carries the version it was based on, so a stale save is never silently overwritten: you choose to
+keep yours or load theirs.
+
+Presence costs no database work: tabs send a small heartbeat with a signed token and the server
+keeps presence in memory. On a single server (`next start`, a container) that's all you need. If
+your app runs on several instances at once, pass a shared `presence` store, or turn it off with
+`presence: false` (the save-conflict check works either way).
 
 ```ts
 // next.config.ts

@@ -1,6 +1,6 @@
 import { memoryAdapter as betterAuthMemoryAdapter } from "better-auth/adapters/memory";
 import { getSchema } from "better-auth/db";
-import { SlugConflictError } from "./types";
+import { SlugConflictError, UpdateConflictError } from "./types";
 import type { DatabaseAdapter, DocumentRecord, Where, WhereOperators } from "./types";
 
 const systemKeys = new Set(["id", "slug", "status", "createdAt", "updatedAt"]);
@@ -131,16 +131,20 @@ export function memoryAdapter(): DatabaseAdapter {
       records.set(record.id, record);
       return structuredClone(record);
     },
-    async update(collection, id, input) {
+    async update(collection, id, input, options) {
       const previous = records.get(id);
       if (!previous || previous.collection !== collection) return null;
+      if (options?.ifUpdatedAt && previous.updatedAt.getTime() !== options.ifUpdatedAt.getTime()) {
+        throw new UpdateConflictError(collection, id);
+      }
       const record = structuredClone(previous);
       if (input.slug !== undefined) record.slug = input.slug;
       if (input.status !== undefined) record.status = input.status;
       if (input.data !== undefined) record.data = structuredClone(input.data);
       if (input.draftData !== undefined) record.draftData = structuredClone(input.draftData);
       assertUnique(collection, record.slug, id);
-      record.updatedAt = new Date(Math.max(Date.now(), previous.updatedAt.getTime()));
+      // Strictly increasing, so updatedAt works as the record's version (see DatabaseAdapter.update).
+      record.updatedAt = new Date(Math.max(Date.now(), previous.updatedAt.getTime() + 1));
       records.set(id, record);
       return structuredClone(record);
     },

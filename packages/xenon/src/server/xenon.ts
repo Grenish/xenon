@@ -1,6 +1,6 @@
 import type { BetterAuthPlugin } from "better-auth";
 import type { DatabaseAdapter, DocumentRecord, StorageAdapter, Where } from "../adapters/types";
-import { SlugConflictError } from "../adapters/types";
+import { SlugConflictError, UpdateConflictError } from "../adapters/types";
 import { createXenonAuth, resolveUser } from "../auth";
 import { XenonError } from "../core/errors";
 import type { AnyCollection, Field, XenonConfig, XenonUser } from "../core/types";
@@ -179,8 +179,22 @@ export function createXenon<Cfg extends XenonConfig>(
     }
   }
 
+  function staleError(): XenonError {
+    const message = "This document was saved by someone else after you opened it.";
+    // `updatedAt` in the issue path tells clients "stale version" apart from a slug conflict.
+    return new XenonError("CONFLICT", message, [{ path: ["updatedAt"], message }]);
+  }
+
+  function expectedVersion(value: string | Date | undefined): Date | undefined {
+    if (value === undefined) return undefined;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) throw new XenonError("BAD_REQUEST", "expectedUpdatedAt must be an ISO date.");
+    return date;
+  }
+
   function conflict(err: unknown): never {
     if (err instanceof SlugConflictError) throw new XenonError("CONFLICT", err.message);
+    if (err instanceof UpdateConflictError) throw staleError();
     throw err;
   }
 
@@ -270,6 +284,9 @@ export function createXenon<Cfg extends XenonConfig>(
       await checkAccess(collection, "update", o);
       const existing = await getRecord(collection, o.id);
       const asDraft = draftsEnabled(collection) && o.draft === true;
+      // Fail fast on a stale edit (the row was already read for the merge); the write re-checks atomically.
+      const ifUpdatedAt = expectedVersion(o.expectedUpdatedAt);
+      if (ifUpdatedAt && existing.updatedAt.getTime() !== ifUpdatedAt.getTime()) throw staleError();
 
       const working = existing.draftData ?? existing.data;
       if (typeof o.data !== "object" || o.data === null || Array.isArray(o.data)) {
@@ -300,6 +317,7 @@ export function createXenon<Cfg extends XenonConfig>(
             asDraft
               ? { slug, draftData: data }
               : { slug, data, draftData: null, status: "published" },
+            ifUpdatedAt ? { ifUpdatedAt } : undefined,
           )
           .catch(conflict);
         if (!record) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);

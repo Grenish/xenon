@@ -81,6 +81,25 @@ export interface CreateRecordInput {
 
 export type UpdateRecordInput = Partial<Omit<CreateRecordInput, "collection">>;
 
+export interface UpdateRecordOptions {
+  /**
+   * Optimistic concurrency: only update when the row's `updatedAt` still equals this instant.
+   * Checked in the same statement as the write (no extra query on success).
+   */
+  ifUpdatedAt?: Date;
+}
+
+/** Thrown by adapters when `ifUpdatedAt` no longer matches: someone else saved in between. */
+export class UpdateConflictError extends Error {
+  override name = "UpdateConflictError";
+  constructor(
+    public readonly collection: string,
+    public readonly id: string,
+  ) {
+    super(`[xenon] Document "${id}" in "${collection}" was changed by another save.`);
+  }
+}
+
 /** Thrown by adapters when `(collection, slug)` would no longer be unique. */
 export class SlugConflictError extends Error {
   override name = "SlugConflictError";
@@ -100,8 +119,12 @@ export interface DatabaseAdapter {
   findById(collection: string, id: string): Promise<DocumentRecord | null>;
   /** Generates `id` and timestamps. Throws `SlugConflictError` on duplicate slug. */
   create(input: CreateRecordInput): Promise<DocumentRecord>;
-  /** Bumps `updatedAt`. Returns `null` when not found. Throws `SlugConflictError` on duplicate slug. */
-  update(collection: string, id: string, input: UpdateRecordInput): Promise<DocumentRecord | null>;
+  /**
+   * Bumps `updatedAt` strictly (at least 1 ms past the previous value), so `updatedAt` doubles as the
+   * row's version. Returns `null` when not found. Throws `SlugConflictError` on duplicate slug and
+   * `UpdateConflictError` when `options.ifUpdatedAt` no longer matches.
+   */
+  update(collection: string, id: string, input: UpdateRecordInput, options?: UpdateRecordOptions): Promise<DocumentRecord | null>;
   /** Returns `false` when not found. */
   delete(collection: string, id: string): Promise<boolean>;
   /**
@@ -111,6 +134,68 @@ export interface DatabaseAdapter {
   getAuthDatabase(authOptions: BetterAuthOptions): Promise<NonNullable<BetterAuthOptions["database"]>>;
   /** Release connections (tests, scripts). */
   close?(): Promise<void>;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  Presence                                  */
+/* -------------------------------------------------------------------------- */
+
+/** Who is where in the admin. Isomorphic, type-only. */
+export interface PresenceUser {
+  id: string;
+  name: string | null;
+  email: string;
+}
+
+export interface PresenceLocation {
+  collection: string;
+  /** Document id; omitted on a collection list. */
+  id?: string;
+  /** Document title as the client shows it (for "Tom is editing …"). */
+  title?: string;
+}
+
+export interface PresenceBeat {
+  /** Random id of one browser tab. */
+  tab: string;
+  user: PresenceUser;
+  location: PresenceLocation | null;
+  /** `edit` asks for the document's soft lock; `takeover` takes it from whoever holds it. */
+  intent: "view" | "edit" | "takeover";
+  /** `updatedAt` of the document version this tab has (lets viewers notice a newer save). */
+  version?: string;
+}
+
+export interface PresencePeer {
+  tab: string;
+  user: PresenceUser;
+  location: PresenceLocation | null;
+  /** Holds the soft lock of `location.id`. */
+  editing: boolean;
+  version: string | null;
+  /** When this tab arrived at its location (ms). */
+  since: number;
+}
+
+export interface PresenceSnapshot {
+  you: {
+    editing: boolean;
+    /** Set when someone took the lock from this tab; cleared once the tab sends `view` or `takeover`. */
+    takenOverBy: { user: PresenceUser; at: number } | null;
+  };
+  /** Every other active tab (including this user's other tabs). */
+  peers: PresencePeer[];
+}
+
+/**
+ * Where presence lives. The default keeps it in server memory (no database traffic). Multi-instance
+ * deployments that want one shared view can plug in a store backed by Redis or similar; the store
+ * owns lock resolution, so it must apply each beat atomically.
+ */
+export interface PresenceStore {
+  readonly name: string;
+  beat(beat: PresenceBeat): Promise<PresenceSnapshot> | PresenceSnapshot;
+  leave(userId: string, tab: string): Promise<void> | void;
 }
 
 /* -------------------------------------------------------------------------- */

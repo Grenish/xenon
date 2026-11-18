@@ -3,9 +3,10 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { RiMoreLine, RiDeleteBinLine, RiEyeOffLine, RiSave3Line } from "@remixicon/react";
+import { RiMoreLine, RiDeleteBinLine, RiEditLine, RiEyeOffLine, RiLockLine, RiSave3Line } from "@remixicon/react";
 import { StatusBadge, timeAgo, formatDate } from "../admin/format";
 import { useShellBar } from "../admin/shell-bar";
+import { AvatarStack, displayName, type DocPresence, PersonAvatar, useDocPresence } from "../admin/presence";
 import { Alert, AlertDescription, AlertTitle } from "../components/alert";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/alert-dialog";
 import { Button } from "../components/button";
@@ -35,6 +36,8 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const [pending, setPending] = useState<"save" | "publish" | "unpublish" | "remove" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [leaveTo, setLeaveTo] = useState<string | null>(null);
+  /** A save was refused because someone saved a newer version: theirs, and which save we attempted. */
+  const [conflict, setConflict] = useState<{ latest: AdminDoc; draft: boolean } | null>(null);
   const busy = useRef(false);
   const alertRef = useRef<HTMLDivElement>(null);
   const actionsButton = useRef<HTMLButtonElement>(null);
@@ -46,6 +49,10 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const titleField = collection.fields.find((field) => field.name === collection.admin.useAsTitle && (field.type === "text" || field.type === "textarea") && !field.admin.hidden);
   const bodyField = collection.fields.find((field) => field.type === "richText" && !field.admin.hidden && field.admin.position !== "sidebar");
   const canvasMode = !collection.upload && !!(titleField || bodyField);
+  const presence = useDocPresence({ collection: collection.slug, id: current?.id ?? null, title, version: current?.updatedAt ?? null, edit: true });
+  // Soft lock: while someone else holds it this tab is read-only (until it takes over).
+  const readOnly = presence.mode !== "editing";
+  const locked = !!pending || readOnly;
 
   useEffect(() => {
     if (!dirty) return;
@@ -85,8 +92,8 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     setFieldErrors({}); setFormError("");
   }
 
-  async function save(draft: boolean) {
-    if (busy.current) return;
+  async function save(draft: boolean, expectedUpdatedAt = current?.updatedAt) {
+    if (busy.current || readOnly) return;
     const errors = validateFields(collection.fields, data, draft);
     setFieldErrors(errors); setFormError("");
     if (Object.keys(errors).length) { setFormError("Please check the highlighted fields."); requestAnimationFrame(() => alertRef.current?.focus()); return; }
@@ -94,9 +101,17 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     busy.current = true;
     setPending(draft ? "save" : "publish");
     try {
-      const result = collection.upload && file ? await services.upload({ collection: collection.slug, id: current?.id, file, data }) :
-        await services.save({ collection: collection.slug, id: current?.id, data, draft });
-      if (!result.ok) { showError(result); return; }
+      const result = collection.upload && file ? await services.upload({ collection: collection.slug, id: current?.id, file, data, expectedUpdatedAt }) :
+        await services.save({ collection: collection.slug, id: current?.id, data, draft, expectedUpdatedAt });
+      if (!result.ok) {
+        if (current && isStale(result)) {
+          // Someone saved after we loaded: fetch their version (one read) and let the user decide.
+          const latest = await services.get({ collection: collection.slug, id: current.id });
+          if (latest.ok) { setConflict({ latest: latest.data, draft }); return; }
+        }
+        showError(result);
+        return;
+      }
       accept(result.data);
       toast.success(draft ? "Draft saved" : isDraftsEnabled ? "Published" : "Changes saved");
       if (!current) router.replace(adminRoutes.edit(basePath, collection.slug, result.data.id));
@@ -131,6 +146,22 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     finally { busy.current = false; setPending(null); }
   }
 
+  // Someone else saved a newer version while this tab only watches (or hasn't touched anything):
+  // load it so viewers always see the latest content. Costs one read per save, not per heartbeat.
+  const newest = presence.peers.reduce<string | null>((max, p) => (p.version && (!max || p.version > max) ? p.version : max), null);
+  const fetched = useRef<string | null>(null);
+  useEffect(() => {
+    if (!current || !newest || dirty || pending || newest <= current.updatedAt || fetched.current === newest) return;
+    fetched.current = newest;
+    const by = presence.peers.find((p) => p.version === newest);
+    void services.get({ collection: collection.slug, id: current.id }).then((result) => {
+      if (!result.ok || result.data.updatedAt <= (current?.updatedAt ?? "")) return;
+      accept(result.data);
+      toast(`${by ? displayName(by.user) : "Someone"} saved changes`, { description: "You're seeing the latest version." });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newest, dirty, pending, current?.updatedAt]);
+
   const shortcut = useRef(save);
   shortcut.current = save;
   useEffect(() => {
@@ -149,7 +180,8 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     setData((previous) => ({ ...previous, [name]: value }));
     setFieldErrors((previous) => { if (!(name in previous)) return previous; const next = { ...previous }; delete next[name]; return next; });
   };
-  const saveState = pending === "remove" ? "Deleting…" : pending === "unpublish" ? "Unpublishing…" : pending ? "Saving…" : dirty ? "Unsaved changes" : current ? `Saved ${timeAgo(current.updatedAt)}` : "Not saved yet";
+  const conflictAuthor = conflict ? (() => { const p = presence.peers.find((peer) => peer.version === conflict.latest.updatedAt); return p ? displayName(p.user) : null; })() : null;
+  const saveState = readOnly ? "Read-only" : pending === "remove" ? "Deleting…" : pending === "unpublish" ? "Unpublishing…" : pending ? "Saving…" : dirty ? "Unsaved changes" : current ? `Saved ${timeAgo(current.updatedAt)}` : "Not saved yet";
   const words = bodyField ? richTextToPlainText(data[bodyField.name] as RichTextDocument | null).trim().split(/\s+/).filter(Boolean).length : 0;
   const propertyFields = canvasMode ? collection.fields.filter((field) => field !== titleField && field !== bodyField) : collection.fields.filter((field) => field.admin.position === "sidebar");
 
@@ -157,10 +189,13 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   useShellBar({
     crumbs: [{ label: collection.labels.plural, href: adminRoutes.list(basePath, collection.slug) }, { label: docLabel }],
     status: <>
+      {presence.peers.length ? <AvatarStack peers={presence.peers} max={3} ringClass="xe:ring-frame" /> : null}
       {isDraftsEnabled ? <StatusBadge status={current?.status ?? "draft"} changed={current?.hasUnpublishedChanges || dirty && current?.status === "published"} className="xe:hidden xe:sm:inline-flex" /> : null}
       <p className="xe:hidden xe:text-[13px] xe:text-muted-foreground xe:md:block" aria-live="polite" suppressHydrationWarning>{saveState}</p>
     </>,
-    actions: <div className="xe:flex xe:items-center xe:gap-1.5">
+    actions: readOnly ? <div className="xe:flex xe:items-center xe:gap-1.5">
+      <Button type="button" onClick={presence.takeover}><RiEditLine data-icon="inline-start" />{presence.mode === "taken" && !presence.holder ? "Continue editing" : "Take over"}</Button>
+    </div> : <div className="xe:flex xe:items-center xe:gap-1.5">
       {isDraftsEnabled ? <Button type="button" variant="outline" className="xe:hidden xe:sm:inline-flex" disabled={!!pending} onClick={() => void save(true)}>{pending === "save" ? <Spinner /> : null}Save draft</Button> : null}
       <Button type="button" disabled={!!pending} onClick={() => void save(false)}>{pending === "publish" ? <Spinner /> : null}{isDraftsEnabled ? "Publish" : "Save"}</Button>
       {current ? <DropdownMenu><DropdownMenuTrigger ref={actionsButton} render={<Button type="button" variant="ghost" size="icon" aria-label="More document actions" disabled={!!pending} />}><RiMoreLine /></DropdownMenuTrigger>
@@ -179,6 +214,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   // Full-bleed on the sheet: the canvas on the left, the inspector as a ruled column on the right.
   return <div data-xe-full className="xe:flex xe:flex-col xe:lg:grid xe:lg:min-h-[calc(100dvh-3.5rem-2px)] xe:lg:grid-cols-[minmax(0,1fr)_21rem]">
     <div className="xe:flex xe:min-w-0 xe:flex-col xe:gap-6 xe:px-4 xe:pt-6 xe:pb-10 xe:sm:px-8 xe:lg:pt-10">
+      {readOnly ? <LockBanner presence={presence} singular={collection.labels.singular.toLowerCase()} dirty={dirty} /> : null}
       {formError ? <Alert ref={alertRef} tabIndex={-1} variant="destructive" className="xe:mx-auto xe:w-full xe:max-w-[46rem]"><AlertTitle>We couldn’t save your changes</AlertTitle><AlertDescription>{formError}</AlertDescription></Alert> : null}
 
       {collection.upload ? <section className="xe:mx-auto xe:flex xe:w-full xe:max-w-[46rem] xe:flex-col xe:gap-3">
@@ -186,11 +222,11 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
           <h1 className="xe:text-[22px] xe:font-semibold xe:leading-tight xe:tracking-[-0.01em]">{current ? title : `Upload to ${collection.labels.plural.toLowerCase()}`}</h1>
           <p className="xe:text-sm xe:text-muted-foreground">{current ? "Keep this file or drop in a replacement." : "Choose the file you want to add to your library."}</p>
         </div>
-        <FileDropzone file={file} onChange={setFile} disabled={!!pending} accept={collection.upload.mimeTypes?.join(",")}
+        <FileDropzone file={file} onChange={setFile} disabled={locked} accept={collection.upload.mimeTypes?.join(",")}
           url={typeof current?.data.url === "string" ? current.data.url : null} filename={typeof current?.data.filename === "string" ? current.data.filename : null} mimeType={typeof current?.data.mimeType === "string" ? current.data.mimeType : null} />
         <div className="xe:mt-4 xe:flex xe:flex-col xe:gap-4">
           <h2 className="xe:text-[15px] xe:font-semibold">Details</h2>
-          <FormRenderer fields={collection.fields.filter((field) => field.admin.position !== "sidebar")} data={data} disabled={!!pending} errors={fieldErrors} onChange={change} />
+          <FormRenderer fields={collection.fields.filter((field) => field.admin.position !== "sidebar")} data={data} disabled={locked} errors={fieldErrors} onChange={change} />
         </div>
       </section> : null}
 
@@ -198,13 +234,13 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
         <h1 className="xe:sr-only">{docLabel}</h1>
         {titleField ? <div className="xe:flex xe:flex-col xe:gap-1.5">
           <TitleInput id={`${canvasId}-title`} label={titleField.label} value={typeof data[titleField.name] === "string" ? data[titleField.name] as string : ""}
-            placeholder={titleField.admin.placeholder ?? `Untitled ${collection.labels.singular.toLowerCase()}`} maxLength={titleField.maxLength} disabled={!!pending || titleField.admin.readOnly}
+            placeholder={titleField.admin.placeholder ?? `Untitled ${collection.labels.singular.toLowerCase()}`} maxLength={titleField.maxLength} disabled={locked || titleField.admin.readOnly}
             error={fieldErrors[titleField.name]} onChange={(value) => change(titleField.name, value)}
             onEnter={() => document.getElementById(`${canvasId}-body`)?.focus()} />
         </div> : null}
         {bodyField ? <div className="xe:mt-5 xe:flex xe:flex-col xe:gap-1.5">
           <span id={`${canvasId}-body-label`} className="xe:sr-only">{bodyField.label}</span>
-          <RichTextEditor variant="canvas" field={bodyField} id={`${canvasId}-body`} value={data[bodyField.name]} disabled={!!pending}
+          <RichTextEditor variant="canvas" field={bodyField} id={`${canvasId}-body`} value={data[bodyField.name]} disabled={locked}
             aria-invalid={!!fieldErrors[bodyField.name]} aria-describedby={fieldErrors[bodyField.name] ? `${canvasId}-body-error` : undefined}
             onChange={(value) => change(bodyField.name, value)} />
           {fieldErrors[bodyField.name] ? <p id={`${canvasId}-body-error`} role="alert" className="xe:text-sm xe:text-destructive">{fieldErrors[bodyField.name]}</p> : null}
@@ -214,7 +250,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
           <h1 className="xe:text-[22px] xe:font-semibold xe:leading-tight xe:tracking-[-0.01em]">{docLabel}</h1>
           {collection.admin.description ? <p className="xe:text-sm xe:text-muted-foreground">{collection.admin.description}</p> : null}
         </div>
-        <FormRenderer fields={collection.fields.filter((field) => field.admin.position !== "sidebar")} data={data} disabled={!!pending} errors={fieldErrors} onChange={change} />
+        <FormRenderer fields={collection.fields.filter((field) => field.admin.position !== "sidebar")} data={data} disabled={locked} errors={fieldErrors} onChange={change} />
       </section> : null}
     </div>
 
@@ -231,13 +267,24 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
       </section> : null}
       {visibleProperties ? <section className="xe:flex xe:flex-col xe:gap-4 xe:px-5 xe:py-4">
         <h2 className="xe:text-[13px] xe:font-semibold">Details</h2>
-        <FormRenderer fields={propertyFields} data={data} onChange={change} errors={fieldErrors} disabled={!!pending} />
+        <FormRenderer fields={propertyFields} data={data} onChange={change} errors={fieldErrors} disabled={locked} />
       </section> : null}
       <div className="xe:mt-auto xe:flex xe:flex-col xe:gap-1.5 xe:border-t xe:border-border xe:bg-muted/60 xe:px-5 xe:py-3 xe:text-xs xe:text-muted-foreground">
         {bodyField ? <p><span className="xe:tabular-nums xe:text-foreground">{words === 1 ? "1 word" : `${words.toLocaleString()} words`}</span> · {Math.max(1, Math.round(words / 220))} min read</p> : null}
         <p>{isDraftsEnabled ? <><Kbd>⌘S</Kbd> save draft · <Kbd>⌘↵</Kbd> publish</> : <><Kbd>⌘S</Kbd> save</>}</p>
       </div>
     </aside>
+    <AlertDialog open={conflict !== null} onOpenChange={(open) => { if (!open) setConflict(null); }}><AlertDialogContent className="xe:data-[size=default]:max-w-[calc(100%-2rem)] xe:data-[size=default]:sm:max-w-lg"><AlertDialogHeader>
+      <AlertDialogTitle>This {collection.labels.singular.toLowerCase()} changed while you were editing</AlertDialogTitle>
+      <AlertDialogDescription>
+        {conflictAuthor ? `${conflictAuthor} saved` : "A newer version was saved"} {conflict ? timeAgo(conflict.latest.updatedAt) : ""}. Saving now would overwrite their changes. Keep your version, or load theirs and lose your unsaved edits.
+      </AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <Button type="button" variant="outline" onClick={() => { if (conflict) { accept(conflict.latest); toast("Loaded the latest version"); } setConflict(null); }}>Load their version</Button>
+        <AlertDialogAction variant="destructive" onClick={() => { const c = conflict; setConflict(null); if (c) void save(c.draft, c.latest.updatedAt); }}>Overwrite with mine</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent></AlertDialog>
     <AlertDialog open={leaveTo !== null} onOpenChange={(open) => { if (!open) setLeaveTo(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle><AlertDialogDescription>You have changes to “{title}” that haven’t been saved. If you leave now, they’ll be lost.</AlertDialogDescription></AlertDialogHeader>
       <AlertDialogFooter><AlertDialogCancel>Keep editing</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => {
         const href = leaveTo; setLeaveTo(null); setBaseline(JSON.stringify(data)); setFile(null);
@@ -269,4 +316,35 @@ function TitleInput({ id, label, value, placeholder, maxLength, disabled, error,
       className="xe:w-full xe:resize-none xe:overflow-hidden xe:bg-transparent xe:font-serif xe:text-[2rem] xe:font-semibold xe:sm:text-[2.5rem] xe:leading-[1.15] xe:tracking-[-0.02em] xe:outline-none xe:placeholder:text-muted-foreground/45 xe:focus-visible:outline-none xe:disabled:opacity-70" />
     {error ? <p id={`${id}-error`} role="alert" className="xe:text-sm xe:text-destructive">{error}</p> : null}
   </>;
+}
+
+/** A refused save because the document has a newer version (not a slug clash). */
+function isStale(result: Extract<ActionResult<unknown>, { ok: false }>): boolean {
+  return result.error.code === "CONFLICT" && (result.error.issues ?? []).some((issue) => issue.path[0] === "updatedAt");
+}
+
+/** Soft-lock notice above the canvas: who holds the document, and how to get it back. */
+function LockBanner({ presence, singular, dirty }: { presence: DocPresence; singular: string; dirty: boolean }) {
+  const { user } = useAdmin();
+  const holder = presence.holder;
+  const self = !!holder && holder.user.id === user.id;
+  const taker = presence.takenOverBy;
+  const name = holder ? displayName(holder.user) : taker ? displayName(taker.user) : "Someone";
+  const title = presence.mode === "taken"
+    ? `${taker ? displayName(taker.user) : "Someone"} took over editing ${timeAgo(new Date(taker?.at ?? Date.now()).toISOString())}`
+    : self ? `You're editing this ${singular} in another tab` : `${name} is editing this ${singular}`;
+  const detail = presence.mode === "taken"
+    ? dirty ? "Your unsaved changes are still here. Take back editing to save them; if they saved in the meantime, you'll be asked which version to keep." : "You're viewing it read-only. Their saves appear here automatically."
+    : self ? "This tab is read-only so the two copies can't overwrite each other. Take over to edit here instead."
+    : "You're viewing it read-only. Their saves appear here automatically. Take over if they've stepped away.";
+  const person = holder?.user ?? taker?.user;
+  return (
+    <div role="status" className="xe:mx-auto xe:flex xe:w-full xe:max-w-[46rem] xe:items-start xe:gap-3 xe:rounded-lg xe:border xe:border-border xe:bg-muted xe:px-4 xe:py-3">
+      {person ? <PersonAvatar user={person} editing={!!holder} className="xe:mt-0.5 xe:ring-muted" /> : <RiLockLine className="xe:mt-0.5 xe:size-5 xe:text-muted-foreground" aria-hidden />}
+      <div className="xe:flex xe:min-w-0 xe:flex-col xe:gap-0.5">
+        <p className="xe:text-sm xe:font-medium">{title}</p>
+        <p className="xe:text-[13px] xe:text-muted-foreground">{detail}</p>
+      </div>
+    </div>
+  );
 }

@@ -14,7 +14,8 @@ export const AUTH_MODELS = {
   verification: "xenon_verifications",
 } as const;
 
-function resolveSecret(config: XenonConfig): string {
+/** The app secret (config, XENON_SECRET or BETTER_AUTH_SECRET; a fixed dev secret outside production). */
+export function resolveSecret(config: XenonConfig): string {
   const secret = config.auth?.secret ?? process.env.XENON_SECRET ?? process.env.BETTER_AUTH_SECRET;
   if (secret) return secret;
   if (process.env.NODE_ENV === "production") {

@@ -2,7 +2,7 @@
  * Core type definitions + the type-level inference engine.
  * Everything here is erased at runtime — no imports with side effects.
  */
-import type { DatabaseAdapter, StorageAdapter } from "../adapters/types";
+import type { DatabaseAdapter, PresenceStore, StorageAdapter } from "../adapters/types";
 
 /* -------------------------------------------------------------------------- */
 /*                                   Utils                                    */
@@ -253,6 +253,11 @@ export interface XenonConfigInput<Cs extends readonly AnyCollection[] = readonly
   auth?: XenonAuthConfig;
   admin?: { path?: string };
   api?: { path?: string };
+  /**
+   * Live presence and soft locks in the admin. Default: kept in server memory (no database
+   * traffic). `false` turns it off; a custom store shares presence across server instances.
+   */
+  presence?: PresenceStore | false;
 }
 
 export interface XenonConfig<Cs extends readonly AnyCollection[] = readonly AnyCollection[]>

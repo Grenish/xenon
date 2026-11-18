@@ -1,0 +1,69 @@
+.xt .ss-stage {
+  --ss-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  overflow: hidden;
+  font-family: var(--ss-font);
+}
+.xt .xt-win {
+  position: absolute;
+  left: 32px;
+  top: 32px;
+  width: 700px;
+  height: 470px;
+  box-shadow: var(--ss-shadow-hero);
+}
+.xt .xt-win .ss-window__body { background: #fff; }
+.xt .xt-body {
+  --xt-gutter: 46px; /* Code's line number and diff marker */
+  padding: 16px 0 16px 12px;
+  font: 12.5px/19px ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+.xt .ss-code {
+  font: inherit;
+  --ss-code-key: #8a3b12;
+  --ss-code-fn: #1b6c80;
+  --ss-code-str: #2f6b2f;
+}
+/* Preserve the line's flex layout and character metrics through the stage's code-element reset. */
+.xt .ss-code__row { display: contents; font: inherit; }
+.xt .xt-edit { position: relative; }
+.xt .xt-line, .xt .xt-anchor {
+  position: absolute;
+  inset-block: 0;
+  left: calc(var(--xt-gutter) + var(--xt-prefix));
+  width: 1px;
+}
+/* Suggestions open at the insertion point immediately after the dot. */
+.xt .xt-anchor { margin-left: 5ch; }
+.xt .xt-caret {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-left: 1.5px solid #1b6c80;
+}
+
+.xt .xt-pop {
+  position: absolute;
+  width: 300px;
+  padding: 4px;
+  border-radius: 9px;
+  --ss-popover-bg: #fff;
+}
+.xt .xt-pop .ss-menu { --ss-row: 30px; }
+.xt .xt-item { display: grid; grid-template-columns: 18px auto minmax(0, 1fr); align-items: center; gap: 8px; width: 100%; font-size: 13px; }
+.xt .xt-kind { display: grid; place-items: center; color: #1b6c80; }
+.xt .xt-name { font: 500 12.5px/1 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; color: #131416; }
+.xt .xt-type { justify-self: end; font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; color: #5d6064; white-space: nowrap; }
+
+.xt .ss-stage[data-layout="compact"] .xt-win {
+  left: 16px;
+  top: 16px;
+  width: 382px;
+  height: 328px;
+}
+.xt .ss-stage[data-layout="compact"] .xt-body {
+  --xt-gutter: 16px; /* Only the diff marker remains without line numbers. */
+  padding: 12px 0 12px 8px;
+  font-size: 12px;
+}
+.xt .ss-stage[data-layout="compact"] .xt-pop { width: 232px; }
+.xt .ss-stage[data-layout="compact"] .xt-pop .ss-menu { --ss-row: 28px; }

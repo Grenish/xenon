@@ -84,6 +84,11 @@ export interface UpdateOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
   draft?: boolean;
   /** Replace the stored file (upload collections). */
   file?: UploadFile;
+  /**
+   * Optimistic concurrency: the `updatedAt` of the version the caller edited. When the document has
+   * been saved since, the update is refused with a `CONFLICT` error instead of overwriting.
+   */
+  expectedUpdatedAt?: string | Date;
 }
 
 export interface ByIdOptions<Cfg, S extends Slug<Cfg>> extends CallContext {

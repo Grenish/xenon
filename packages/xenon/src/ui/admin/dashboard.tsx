@@ -10,6 +10,7 @@ import { useAdmin } from "../shared/admin-context";
 import type { ClientCollection } from "../shared/client-config";
 import { adminRoutes, type DashboardData, type DashboardDoc } from "../shared/services";
 import { StatusBadge, formatDate, timeAgo } from "./format";
+import { DocPeers } from "./presence";
 import { collectionIcon } from "./shell";
 
 export function formatBytes(bytes: number): string {
@@ -217,7 +218,7 @@ function DocRows({ docs, bySlug, action }: { docs: DashboardDoc[]; bySlug: Map<s
           <li key={`${d.collection}:${d.id}`} className="xe:border-b xe:border-rule xe:last:border-b-0">
             <Link href={adminRoutes.edit(basePath, d.collection, d.id)} className="xe:group xe:grid xe:grid-cols-[minmax(0,1fr)_auto] xe:items-center xe:gap-4 xe:px-5 xe:py-2.5 xe:transition-colors xe:hover:bg-muted/60 xe:focus-visible:bg-muted/60 xe:sm:grid-cols-[minmax(0,1fr)_auto_6.5rem]">
               <span className="xe:min-w-0">
-                <span className="xe:block xe:truncate xe:text-sm xe:font-medium">{d.title}</span>
+                <span className="xe:flex xe:min-w-0 xe:items-center xe:gap-2"><span className="xe:truncate xe:text-sm xe:font-medium">{d.title}</span><DocPeers collection={d.collection} id={d.id} /></span>
                 <span className="xe:block xe:truncate xe:text-xs xe:text-muted-foreground">
                   {c?.labels.singular ?? d.collection} · <time dateTime={d.updatedAt} title={formatDate(d.updatedAt)} suppressHydrationWarning>edited {timeAgo(d.updatedAt)}</time>
                 </span>

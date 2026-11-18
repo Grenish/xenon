@@ -8,7 +8,8 @@
     "dev": "bun run --filter xenon-cms dev",
     "test": "bun run --filter xenon-cms test",
     "typecheck": "bun run --filter '*' typecheck",
-    "playground": "bun run --filter playground dev"
+    "playground": "bun run --filter playground dev",
+    "dev:all": "bash scripts/dev-all.sh"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

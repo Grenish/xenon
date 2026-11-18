@@ -73,8 +73,9 @@ export function useServices(): AdminServices {
       save: (input) => run<AdminDoc>({ type: "doc.save", ...input }, { refresh: true }),
       unpublish: (input) => run<AdminDoc>({ type: "doc.unpublish", ...input }, { refresh: true }),
       remove: (input) => run<{ id: string }>({ type: "doc.remove", ...input }, { refresh: true }),
+      get: (input) => run<AdminDoc>({ type: "doc.get", ...input }),
       search: (input) => run<SearchResult>({ type: "doc.search", ...input }),
-      async upload({ collection, id, file, data }) {
+      async upload({ collection, id, file, data, expectedUpdatedAt }) {
         // Files go through the REST API (multipart) to avoid the Server Action body size limit.
         const body = new FormData();
         body.set("file", file);
@@ -84,6 +85,7 @@ export function useServices(): AdminServices {
           res = await fetch(`${apiPath}/${encodeURIComponent(collection)}${id ? `/${encodeURIComponent(id)}` : ""}`, {
             method: id ? "PATCH" : "POST",
             body,
+            headers: id && expectedUpdatedAt ? { "if-match": `"${expectedUpdatedAt}"` } : undefined,
             credentials: "same-origin",
           });
         } catch {
@@ -97,7 +99,7 @@ export function useServices(): AdminServices {
           return {
             ok: false,
             error: {
-              code: String(res.status),
+              code: res.status === 409 && errors.some((e) => e.path?.[0] === "updatedAt") ? "CONFLICT" : String(res.status),
               message: errors[0]?.message ?? "Upload failed.",
               issues: errors.map((e) => ({ path: e.path ?? [], message: e.message })),
             },

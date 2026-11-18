@@ -10,6 +10,8 @@ import {
   type PaginatedResult,
   SlugConflictError,
   type UpdateRecordInput,
+  type UpdateRecordOptions,
+  UpdateConflictError,
 } from "../types";
 import { authDDL, authDrizzleSchema } from "./auth-schema";
 import { DOCUMENTS_DDL, xenonDocuments as t } from "./schema";
@@ -79,9 +81,59 @@ async function connect(options: PostgresAdapterOptions): Promise<Connection> {
       const { mkdir } = await import("node:fs/promises");
       await mkdir(/*turbopackIgnore: true*/ dataDir, { recursive: true });
     }
-    const client = dataDir ? new PGlite(dataDir) : new PGlite();
-    return { db: drizzle(client) as AnyPgDatabase, close: () => client.close() };
+    const fileBacked = !!dataDir && !/^[a-z]+:\/\//i.test(dataDir);
+    const release = fileBacked ? await lockDataDir(dataDir) : () => {};
+    try {
+      const client = dataDir ? new PGlite(dataDir) : new PGlite();
+      await client.waitReady;
+      return { db: drizzle(client) as AnyPgDatabase, close: async () => { try { await client.close(); } finally { release(); } } };
+    } catch (err) {
+      release();
+      throw err;
+    }
   });
+}
+
+/**
+ * PGlite has no cross-process locking: two processes on one data directory (a dev server and
+ * `next build`, two dev servers, a script) silently corrupt its write-ahead log. Guard the directory
+ * with a sibling lock file holding the owner's pid; a stale lock (dead pid) is taken over.
+ */
+async function lockDataDir(dataDir: string): Promise<() => void> {
+  const fs = await import("node:fs");
+  const { resolve } = await import("node:path");
+  const lockPath = `${resolve(/*turbopackIgnore: true*/ dataDir)}.lock`;
+  const mine = String(process.pid);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      fs.writeFileSync(lockPath, mine, { flag: "wx" });
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      const owner = Number.parseInt(fs.readFileSync(lockPath, "utf8").trim(), 10);
+      if (owner === process.pid) break;
+      let alive = false;
+      if (Number.isInteger(owner) && owner > 0) {
+        try { process.kill(owner, 0); alive = true; } catch (e) { alive = (e as NodeJS.ErrnoException).code === "EPERM"; }
+      }
+      if (alive) {
+        throw new Error(
+          `[xenon] The PGlite database in "${dataDir}" is already open in another process (pid ${owner}). ` +
+            "PGlite allows one process at a time; two processes on one folder corrupt it. Stop the other process " +
+            "(another dev server, `next build`, a script) or use DATABASE_URL with a Postgres server for multi-process setups.",
+        );
+      }
+      try { fs.unlinkSync(lockPath); } catch { /* raced with another process; retry */ }
+    }
+  }
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    try { if (fs.readFileSync(lockPath, "utf8").trim() === mine) fs.unlinkSync(lockPath); } catch { /* already gone */ }
+  };
+  process.once("exit", release);
+  return release;
 }
 
 /** Walks `cause` chains (drizzle wraps driver errors) looking for a Postgres unique violation. */
@@ -204,20 +256,30 @@ export function postgresAdapter(options: PostgresAdapterOptions): DatabaseAdapte
       });
     },
 
-    async update(collection, id, input: UpdateRecordInput) {
+    async update(collection, id, input: UpdateRecordInput, options?: UpdateRecordOptions) {
       return guard(collection, input.slug, async () => {
-        const set: Partial<typeof t.$inferInsert> = { updatedAt: new Date() };
+        const set: Partial<typeof t.$inferInsert> = {};
         if (input.slug !== undefined) set.slug = input.slug;
         if (input.status !== undefined) set.status = input.status;
         if (input.data !== undefined) set.data = input.data;
         if (input.draftData !== undefined) set.draftData = input.draftData;
+        const now = new Date().toISOString();
+        const match = and(eq(t.collection, collection), eq(t.id, id));
         const [row] = await db()
           .update(t)
-          // Never move updatedAt backwards (clock skew between app servers).
-          .set({ ...set, updatedAt: sql`greatest(${t.updatedAt}, ${set.updatedAt!.toISOString()}::timestamptz)` as unknown as Date })
-          .where(and(eq(t.collection, collection), eq(t.id, id)))
+          // Strictly increasing (never backwards on clock skew, never equal on same-millisecond saves),
+          // so updatedAt is a reliable version for optimistic concurrency.
+          .set({ ...set, updatedAt: sql`greatest(${t.updatedAt} + interval '1 millisecond', ${now}::timestamptz)` as unknown as Date })
+          // Compared at millisecond precision: that's what JS Dates (and so clients) carry.
+          .where(options?.ifUpdatedAt ? and(match, sql`date_trunc('milliseconds', ${t.updatedAt}) = ${options.ifUpdatedAt.toISOString()}::timestamptz`) : match)
           .returning();
-        return row ? toRecord(row as Row) : null;
+        if (row) return toRecord(row as Row);
+        // Only on the failure path: tell "not found" apart from "changed by someone else".
+        if (options?.ifUpdatedAt) {
+          const [exists] = await db().select({ id: t.id }).from(t).where(match).limit(1);
+          if (exists) throw new UpdateConflictError(collection, id);
+        }
+        return null;
       });
     },
 

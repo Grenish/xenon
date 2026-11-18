@@ -13,6 +13,8 @@ import type { Where } from "../../adapters/types";
 import type { XenonConfig } from "../../core/types";
 import { toClientCollection } from "../../ui/shared/client-config";
 import { type AccountSession, adminRoutes, type AdminUserInfo, type DocSummary, type SettingsTab } from "../../ui/shared/services";
+import { resolveSecret } from "../../auth";
+import { signPresenceToken } from "../../server/presence";
 import { getXenon } from "../xenon";
 import { loadDashboard } from "./dashboard-data";
 import { type AdminActionInput, type AdminActionResult, countUsers, loadAdminDoc, runAdminAction, toSummary } from "./action";
@@ -75,8 +77,10 @@ async function AdminPageContent({ config, action, params, searchParams }: AdminP
 
   const userInfo: AdminUserInfo = { id: user.id, email: user.email, name: user.name ?? null, role: user.role };
   const ctx = { user, overrideAccess: false } as const;
+  // Lets the tab send presence heartbeats without a session lookup per beat (renewed by the client).
+  const presenceToken = config.presence === false ? null : await signPresenceToken(resolveSecret(config), { id: user.id, name: user.name ?? null, email: user.email });
   const shell = (children: ReactNode) => (
-    <AdminRoot {...root} collections={collections} user={userInfo}>
+    <AdminRoot {...root} collections={collections} user={userInfo} presenceToken={presenceToken}>
       {children}
     </AdminRoot>
   );
