@@ -1,0 +1,48 @@
+---
+title: Start a new project
+description: Create a Next.js App Router app, add Xenon with an embedded local database, and publish your first post.
+---
+
+## Create the app
+
+From the directory where you keep your projects, create a TypeScript app with Bun and Node.js 20.9 or later. This command puts the App Router under `src/app` and sets the import alias used in the examples.
+
+```bash
+bunx create-next-app@16 my-site --ts --app --src-dir --import-alias "@/*" --use-bun --no-cache-components --yes
+cd my-site
+```
+
+## Install Xenon and a local database
+
+Follow the [core package installation](/docs/start/installation#core-package) to add Xenon to `my-site`. Then install PGlite, the embedded database, in the same app. It stores posts on disk without a separate database server, and it's the only driver this setup needs.
+
+<Install pkg="@electric-sql/pglite" />
+
+In `next.config.ts`, add these settings to the exported configuration object. `serverExternalPackages` lets Next.js load PGlite's WebAssembly files from the installed package. `cpus: 1` builds with a single worker. Only one process can open the local database at a time, so it's needed once several static pages read PGlite while they prerender; a site with a single such page, like this one at first, also builds without it.
+
+```ts title="next.config.ts"
+// Add these properties inside the existing nextConfig object.
+serverExternalPackages: ["@electric-sql/pglite"],
+experimental: { cpus: 1 },
+```
+
+Add `.xenon/` to the app’s `.gitignore`. This directory holds the local database and uploads. Stop the dev server before running a production build against the same PGlite directory.
+
+## Connect the routes
+
+Use the file examples in the [Quickstart](/docs/start/quickstart#steps), in order:
+
+1. Create `src/xenon.config.ts` with the `posts` collection and the file-backed PGlite adapter.
+2. Create `src/app/api/xenon/[...slug]/route.ts` for the REST API.
+3. Create `src/app/admin/[[...segments]]/page.tsx` for the admin and its Server Action.
+4. Replace the starter `src/app/page.tsx` with the Server Component that lists published posts.
+
+## Publish your first post
+
+```bash
+bun run dev
+```
+
+Open `/admin` at the local URL printed by Next.js and create the first administrator. Under **Posts**, create a document, enter a title and select **Publish**. Open `/` to see the title on your site. You can also visit `/api/xenon/posts` to see the same post in the JSON response’s `docs` array.
+
+Before deploying, configure a production secret and persistent storage for your hosting environment. Follow the [deployment guide](/docs/guides/deploying).

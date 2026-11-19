@@ -1,0 +1,54 @@
+---
+title: Presence and soft locks
+description: Prevent concurrent edit collisions with live user presence tracking and soft locking in the Xenon admin.
+---
+
+## Soft locking overview
+
+You can prevent editors from accidentally overwriting concurrent changes using presence indicators and document soft locks.
+
+```ts title="src/xenon.config.ts"
+import { defineConfig } from "xenon-cms";
+import { memoryPresence } from "xenon-cms/server";
+
+export default defineConfig({
+  collections: [],
+  // Defaults to memoryPresence() when omitted
+  presence: memoryPresence(),
+});
+```
+
+When an editor opens a document in `/admin`, the admin client initiates a presence heartbeat that signals active editing sessions to other team members.
+
+## How soft locks work
+
+1. **Viewing**: When a user opens a document, their avatar appears in the document header. Other editors see that the document is being viewed.
+2. **Editing**: As soon as a user begins modifying fields, Xenon acquires an exclusive soft lock on that document for that browser tab.
+3. **Lock warning**: If a second editor navigates to the same document, the form displays a notice indicating who currently holds the editing lock. Fields are set to read-only for the second editor.
+4. **Takeover**: If an editor walks away while holding a lock, an authorized collaborator can click **Take over** to claim the lock. The previous holder's session is notified and converted to a read-only view.
+
+## Presence store configuration
+
+Configure or disable the presence subsystem in `xenon.config.ts`:
+
+| Value | Behavior |
+| --- | --- |
+| `memoryPresence()` | Default. Stores presence in process memory with zero database queries. |
+| `false` | Completely disables the presence endpoint and admin collaboration indicators. |
+
+Presence sessions expire automatically after 90 seconds without a heartbeat. When a user closes their browser tab or navigates away, a leave notification immediately releases the soft lock.
+
+<Callout>
+
+The default `memoryPresence()` runs in-memory per server process. Multi-instance serverless or cluster deployments running across multiple servers require a shared presence store to synchronize locks across nodes.
+
+</Callout>
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/guides/querying" title="Querying content" />
+  <Card href="/docs/guides/caching" title="Caching and revalidation" />
+
+</Cards>

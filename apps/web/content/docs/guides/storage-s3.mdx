@@ -1,0 +1,66 @@
+---
+title: S3-compatible storage
+description: Store media uploads and binary attachments in Amazon S3, Cloudflare R2, or compatible object stores.
+---
+
+## S3 adapter configuration
+
+You can store uploaded media assets in any S3-compatible object store using the S3 storage adapter.
+
+```ts title="src/xenon.config.ts"
+import { defineConfig } from "xenon-cms";
+import { S3StorageAdapter } from "xenon-cms/storage/s3";
+
+export default defineConfig({
+  collections: [],
+  storage: new S3StorageAdapter({
+    bucket: process.env.S3_BUCKET!,
+    endpoint: process.env.S3_ENDPOINT!,
+    region: process.env.S3_REGION ?? "auto",
+    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+    publicUrl: process.env.S3_PUBLIC_URL!,
+    prefix: "uploads",
+  }),
+});
+```
+
+The adapter uses `aws4fetch` to authenticate requests and supports Amazon S3, Cloudflare R2, MinIO, and Backblaze B2.
+
+## Adapter options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `bucket` | `string` | Required | Target bucket name. |
+| `endpoint` | `string` | Required | API endpoint URL (e.g., `https://<account>.r2.cloudflarestorage.com`). |
+| `region` | `string` | `"auto"` | AWS region or `"auto"` for Cloudflare R2. |
+| `accessKeyId` | `string` | Required | S3 access key ID. |
+| `secretAccessKey` | `string` | Required | S3 secret access key. |
+| `publicUrl` | `string` | Required | Base URL where uploaded files can be retrieved via HTTP. |
+| `prefix` | `string` | `undefined` | Optional subfolder prefix prepended to all storage keys and public URLs. |
+
+## Cloudflare R2 example
+
+Cloudflare R2 provides S3-compatible storage without egress bandwidth charges:
+
+```ts
+storage: new S3StorageAdapter({
+  bucket: "my-xenon-media",
+  endpoint: `https://${process.env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  region: "auto",
+  accessKeyId: process.env.CF_R2_ACCESS_KEY_ID!,
+  secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY!,
+  publicUrl: "https://media.example.com",
+}),
+```
+
+Files are uploaded to `{bucket}/{prefix}/{collection}/{year}/{month}/{file}` and served directly from `{publicUrl}/{prefix}/...`.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/guides/rest-api" title="Using the REST API" />
+  <Card href="/docs/guides/deploying" title="Deploying" />
+
+</Cards>

@@ -1,0 +1,98 @@
+---
+title: Postgres
+description: Connect Xenon to a Postgres server, run embedded PGlite for local development, or bring your own Drizzle database.
+---
+
+## Database configuration
+
+You can connect Xenon to any Postgres database, run embedded PGlite locally, or pass in a Drizzle database you already have. Each has its own import, and you install only the driver it uses.
+
+## Production Postgres
+
+Install the `postgres` driver and pass your connection string:
+
+<Install pkg="postgres" />
+
+```ts title="src/xenon.config.ts"
+import { defineConfig } from "xenon-cms";
+import { postgresAdapter } from "xenon-cms/postgres";
+
+export default defineConfig({
+  collections: [],
+  db: postgresAdapter({ connectionString: process.env.DATABASE_URL! }),
+});
+```
+
+Xenon creates its tables the first time it connects. There are no migration commands to run. No Next.js configuration is needed.
+
+## Embedded PGlite for local development
+
+PGlite runs Postgres as WebAssembly inside your server process. Install it and pass a data directory:
+
+<Install pkg="@electric-sql/pglite" />
+
+```ts title="src/xenon.config.ts"
+import { defineConfig } from "xenon-cms";
+import { pgliteAdapter } from "xenon-cms/pglite";
+
+export default defineConfig({
+  collections: [],
+  db: pgliteAdapter({ dataDir: ".xenon/pgdata" }),
+});
+```
+
+PGlite needs two Next.js settings. `serverExternalPackages` lets Next.js load its WebAssembly files from the installed package:
+
+```ts title="next.config.ts"
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: ["@electric-sql/pglite"],
+  experimental: { cpus: 1 },
+};
+
+export default nextConfig;
+```
+
+`cpus: 1` makes `next build` use a single worker. Only one process can open a PGlite database at a time, so when several static pages read it while they prerender, the default worker count fails with an "already open in another process" error. A site with a single page that reads PGlite builds either way.
+
+Data persists to the data directory. Add `.xenon/` to your `.gitignore` to keep local data out of version control. Without `dataDir`, the database lives in memory and is lost on restart.
+
+### Process locks
+
+Because PGlite is a single-process engine, Xenon guards the data directory with a process lock at `{dataDir}.lock`. If a second process attempts to open the same database directory concurrently, Xenon raises an error rather than allowing WAL corruption.
+
+To use PGlite locally and Postgres in production from one config, install both drivers and choose the adapter by environment, for example `process.env.DATABASE_URL ? postgresAdapter(…) : pgliteAdapter(…)`.
+
+## Your own Drizzle database
+
+If your app already has a Drizzle Postgres database (node-postgres, Neon and so on), pass it to `drizzleAdapter`. Xenon needs neither driver then.
+
+```ts title="src/xenon.config.ts"
+import { drizzle } from "drizzle-orm/node-postgres";
+import { defineConfig } from "xenon-cms";
+import { drizzleAdapter } from "xenon-cms/drizzle";
+
+export default defineConfig({
+  collections: [],
+  db: drizzleAdapter({ db: drizzle(process.env.DATABASE_URL!) }),
+});
+```
+
+## Connection string formats
+
+Postgres connection strings follow the standard URI format:
+
+```dotenv
+# Neon / Supabase / AWS RDS / Self-hosted
+DATABASE_URL="postgres://username:password@ep-sample-1234.us-east-2.aws.neon.tech/neondb?sslmode=require"
+```
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/guides/storage-s3" title="S3-compatible storage" />
+  <Card href="/docs/guides/rest-api" title="Using the REST API" />
+
+</Cards>

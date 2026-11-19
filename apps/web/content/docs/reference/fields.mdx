@@ -1,0 +1,157 @@
+---
+title: Field helpers
+description: API reference for all field definition helper functions, option parameters, and return types in Xenon.
+---
+
+## Overview
+
+You can define collection schema fields using helper functions exported from `xenon-cms`.
+
+```ts
+import {
+  boolean,
+  media,
+  number,
+  relation,
+  richText,
+  select,
+  text,
+  textarea,
+} from "xenon-cms";
+```
+
+Each helper returns an object with a literal `type` discriminant and type parameters for compile-time inference.
+
+## Common options
+
+All field helpers accept the following common options:
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `label` | `string` | Humanized key | Label displayed in the admin UI form. |
+| `required` | `boolean` | `false` | When true, rejects missing or null values during publishing. |
+| `defaultValue` | Field value type | `undefined` | Value populated for new records and used for null normalization. |
+| `admin.description` | `string` | `undefined` | Help text displayed beneath the form control. |
+| `admin.placeholder` | `string` | `undefined` | Placeholder text shown while the input is empty (text, text area, number, select, relation and rich text fields). |
+| `admin.hidden` | `boolean` | `false` | Hides the field from the admin interface form. |
+| `admin.readOnly` | `boolean` | `false` | Renders the field as non-editable in the admin interface. |
+| `admin.position` | `"main" \| "sidebar"` | `"main"` | Places the control in the main content canvas or sidebar. |
+| `validate` | `(value, ctx) => true \| string` | `undefined` | Custom validation function. Returning a string indicates an error message. |
+
+## text
+
+Single-line text input producing a `string` value.
+
+```ts
+title: text({ minLength: 3, maxLength: 200, pattern: /^[A-Z]/ })
+```
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `minLength` | `number` | `undefined` | Minimum character length constraint. |
+| `maxLength` | `number` | `undefined` | Maximum character length constraint. |
+| `pattern` | `RegExp` | `undefined` | Regular expression pattern validation. |
+
+## textarea
+
+Multi-line text input producing a `string` value.
+
+```ts
+bio: textarea({ rows: 5, maxLength: 1000 })
+```
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `minLength` | `number` | `undefined` | Minimum character length constraint. |
+| `maxLength` | `number` | `undefined` | Maximum character length constraint. |
+| `rows` | `number` | `4` | Initial visible text rows in the admin UI. |
+
+## number
+
+Numeric input producing a `number` value.
+
+```ts
+quantity: number({ min: 0, max: 100, integer: true })
+```
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `min` | `number` | `undefined` | Minimum numeric value. |
+| `max` | `number` | `undefined` | Maximum numeric value. |
+| `integer` | `boolean` | `false` | Restricts value to whole integer numbers. |
+
+## boolean
+
+Toggle switch producing a `boolean` value.
+
+```ts
+isFeatured: boolean({ defaultValue: false })
+```
+
+## select
+
+Dropdown or multi-select producing string literal unions.
+
+```ts
+category: select({
+  options: [
+    { label: "Guides", value: "guide" },
+    { label: "News", value: "news" },
+  ],
+  hasMany: false,
+})
+```
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `options` | `readonly (string \| { label: string; value: string })[]` | Required | Array of choices. |
+| `hasMany` | `boolean` | `false` | When true, returns an array of selected option values. |
+
+## richText
+
+Formatted text editor producing a ProseMirror/Tiptap document object.
+
+```ts
+content: richText()
+```
+
+Produces `{ type: "doc", content?: RichTextNode[] }`.
+
+## media
+
+Asset picker linking to an upload collection.
+
+```ts
+avatar: media({ relationTo: "media", hasMany: false })
+```
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `relationTo` | `string` | Required | Slug of the target collection. Target must have `upload: true`. |
+| `hasMany` | `boolean` | `false` | When true, produces an array of document ID strings. |
+
+Produces `string` (doc id) or `string[]` when `hasMany: true`.
+
+## relation
+
+Relationship picker linking to any collection.
+
+```ts
+author: relation({ relationTo: "authors", hasMany: false })
+```
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `relationTo` | `string` | Required | Slug of any declared collection. |
+| `hasMany` | `boolean` | `false` | When true, produces an array of document ID strings. |
+
+Produces `string` (doc id) or `string[]` when `hasMany: true`.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/reference/define-collection" title="defineCollection" />
+  <Card href="/docs/reference/define-config" title="defineConfig" />
+
+</Cards>

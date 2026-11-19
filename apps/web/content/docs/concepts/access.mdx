@@ -1,0 +1,92 @@
+---
+title: Access control
+description: Define permissions for reading, creating, updating, and deleting collection documents in Xenon.
+---
+
+## Access rules
+
+You can control access to documents by defining permission functions on your collections.
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, text } from "xenon-cms";
+import type { XenonUser } from "xenon-cms";
+
+export const reports = defineCollection({
+  slug: "reports",
+  access: {
+    read: ({ user }) => Boolean(user),
+    create: ({ user }) => user?.role === "admin",
+    update: ({ user }) => user?.role === "admin" || user?.role === "editor",
+    delete: ({ user }) => user?.role === "admin",
+  },
+  fields: {
+    title: text({ required: true }),
+  },
+});
+```
+
+Each access hook receives the currently authenticated user (`user: XenonUser | null`) and returns either a `boolean` or a `Promise<boolean>`.
+
+## Default access behavior
+
+When no custom access configuration is provided, Xenon applies default permission rules:
+
+| Operation | Default behavior |
+| --- | --- |
+| `read` | Public (`true`) for published content (`draft: false`). Requires an authenticated user when reading drafts (`draft: true`). |
+| `create` | Requires an authenticated user (`user !== null`). |
+| `update` | Requires an authenticated user (`user !== null`). |
+| `delete` | Requires an authenticated user (`user !== null`). |
+
+## User roles
+
+Xenon authentication includes built-in roles:
+
+- `admin`: Full administrative access to manage collections, manage user accounts, and change system settings.
+- `editor`: Access to edit, create, and publish collection documents.
+
+```ts
+access: {
+  create: ({ user }) => user?.role === "admin",
+}
+```
+
+## Overriding access in local queries
+
+Server code using the Local API runs with trusted privileges by default.
+
+```ts title="src/app/api/cron/route.ts"
+import { getXenon } from "xenon-cms/next";
+import config from "@/xenon.config";
+
+export async function GET() {
+  const xenon = getXenon(config);
+
+  // overrideAccess defaults to true in Local API calls
+  await xenon.create({
+    collection: "reports",
+    data: { title: "Automated Daily Report" },
+  });
+
+  // Explicitly enforce access rules
+  await xenon.create({
+    collection: "reports",
+    data: { title: "Editor Submission" },
+    user: null,
+    overrideAccess: false, // throws XenonError with code FORBIDDEN
+  });
+
+  return Response.json({ ok: true });
+}
+```
+
+HTTP endpoints exposed via `createApiHandler` always enforce collection access rules (`overrideAccess: false`).
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/concepts/types" title="Type inference" />
+  <Card href="/docs/admin/setup" title="Mounting the admin" />
+
+</Cards>

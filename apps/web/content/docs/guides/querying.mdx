@@ -1,0 +1,138 @@
+---
+title: Querying content
+description: Query published and draft content using the type-safe Local API directly in Next.js Server Components.
+---
+
+## Server Component queries
+
+You can fetch documents directly on the server without making HTTP requests.
+
+```tsx title="src/app/posts/page.tsx"
+import { getXenon } from "xenon-cms/next";
+import config, { type Post } from "@/xenon.config";
+
+export default async function PostsPage() {
+  const { docs, totalDocs, totalPages } = await getXenon(config).find({
+    collection: "posts",
+    sort: "-createdAt",
+    limit: 10,
+    page: 1,
+  });
+
+  const posts = docs as Post[];
+
+  return (
+    <main>
+      <h1>Articles ({totalDocs})</h1>
+      <ul>
+        {posts.map((post) => (
+          <li key={post.id}>{post.title}</li>
+        ))}
+      </ul>
+    </main>
+  );
+}
+```
+
+The `getXenon(config)` function returns a memoized database instance that executes SQL queries directly within the Next.js server runtime.
+
+## Query methods
+
+The Local API provides three read operations:
+
+### find
+
+Queries multiple documents with filtering, sorting, and pagination.
+
+```ts
+const result = await getXenon(config).find({
+  collection: "posts",
+  where: { category: { equals: "engineering" } },
+  sort: "-createdAt",
+  limit: 20,
+  page: 1,
+});
+```
+
+Returns `{ docs, totalDocs, limit, page, totalPages, hasNextPage, hasPrevPage }`.
+
+### findById
+
+Fetches a single document by its UUID.
+
+```ts
+const post = await getXenon(config).findById({
+  collection: "posts",
+  id: "01934c90-9c44-7000-8432-123456789abc",
+});
+```
+
+Returns the document if found, or `null`.
+
+### findBySlug
+
+Fetches a single document by its generated slug.
+
+```ts
+const post = await getXenon(config).findBySlug({
+  collection: "posts",
+  slug: "announcing-xenon",
+});
+```
+
+Returns the document if found, or `null`.
+
+## Filtering with where clauses
+
+Filter documents using field conditions, comparison operators, and boolean logic.
+
+```ts
+const filtered = await getXenon(config).find({
+  collection: "posts",
+  where: {
+    category: { in: ["engineering", "design"] },
+    readingTime: { lte: 10 },
+    and: [
+      { status: { equals: "published" } },
+      { views: { gt: 100 } },
+    ],
+  },
+});
+```
+
+Supported operators:
+
+| Operator | Target | Description |
+| --- | --- | --- |
+| `equals` | Scalar | Exact equality check. `equals: null` matches missing or null values. |
+| `not_equals` | Scalar | Negation of equality. |
+| `in` | Array | Matches if field value equals any element in the array. |
+| `not_in` | Array | Negation of `in`. |
+| `contains` | String / Array | Substring match on strings (case-insensitive); element match on arrays. |
+| `gt`, `gte`, `lt`, `lte` | Number / String | Numeric comparison on numbers; code-point comparison on strings. |
+| `exists` | Boolean | Checks whether the field exists and is non-null. |
+| `and`, `or` | `Where[]` | Logical AND / OR groupings. |
+
+## Sorting and pagination
+
+Prefix a field key with `-` to sort in descending order.
+
+```ts
+const sorted = await getXenon(config).find({
+  collection: "posts",
+  sort: "-createdAt", // descending by creation date
+  limit: 25,          // 0 returns all documents
+  page: 2,
+});
+```
+
+Ties in custom sort keys are broken by `id` ascending to ensure stable pagination across pages.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/guides/caching" title="Caching and revalidation" />
+  <Card href="/docs/guides/uploads" title="Uploads and media" />
+
+</Cards>

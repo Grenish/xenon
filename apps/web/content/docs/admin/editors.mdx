@@ -1,0 +1,74 @@
+---
+title: Users and roles
+description: Manage administrator and editor accounts, configure user permissions, and provision API keys.
+---
+
+## User management
+
+You can create accounts, assign roles, and grant editorial access to your team through the admin interface.
+
+```ts title="src/xenon.config.ts"
+import { defineConfig } from "xenon-cms";
+import { postgresAdapter } from "xenon-cms/postgres";
+
+export default defineConfig({
+  collections: [],
+  db: postgresAdapter({ connectionString: process.env.DATABASE_URL! }),
+  auth: {
+    secret: process.env.XENON_SECRET,
+    apiKeys: [
+      {
+        key: process.env.CMS_SYNC_KEY!,
+        role: "editor",
+        name: "CI Content Importer",
+      },
+    ],
+  },
+});
+```
+
+Xenon uses BetterAuth to manage user accounts, password hashing, and session cookies across dedicated database tables (`xenon_users`, `xenon_sessions`, `xenon_accounts`, `xenon_verifications`).
+
+## Roles and permissions
+
+Xenon provides two user roles:
+
+| Role | Access level | Capabilities |
+| --- | --- | --- |
+| `admin` | Full system access | Manage all collection documents, create or delete user accounts, invite editors, and configure presence settings. |
+| `editor` | Editorial access | Create, edit, draft, and publish collection documents. Cannot manage the team. |
+
+Admins open **Settings**, then the **Team** tab (`/admin/settings/team`), to create new accounts, change existing user roles, or revoke access.
+
+## Public sign-up restrictions
+
+Public self-registration is permanently disabled. Only admins can add users, from the **Team** tab in **Settings**.
+
+When inviting team members, an admin provisions their email address and initial password. The invited user can subsequently log in at `/admin/login` and update their password in the `/admin/account` settings.
+
+## Programmatic API keys
+
+Configure static API keys for automated scripts, CI/CD pipelines, or microservices in your `xenon.config.ts`:
+
+```ts
+auth: {
+  apiKeys: [
+    { key: process.env.CI_SYNC_KEY!, role: "editor", name: "Deploy Script" },
+  ],
+}
+```
+
+External clients can authenticate requests against `/api/xenon/*` by passing the key in an HTTP header:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" https://example.com/api/xenon/posts
+```
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/admin/presence" title="Presence and soft locks" />
+  <Card href="/docs/guides/querying" title="Querying content" />
+
+</Cards>

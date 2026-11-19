@@ -1,0 +1,68 @@
+---
+title: Deploying
+description: Deploy Xenon and Next.js to production platforms including Vercel, Node.js servers, and Docker containers.
+---
+
+## Production checklist
+
+You can deploy Xenon to any host that supports Next.js App Router applications.
+
+```dotenv title=".env.production"
+# Required: signs sessions and admin presence tokens
+XENON_SECRET="generate-a-strong-32-character-random-secret"
+
+# Required: connection string to hosted Postgres database
+DATABASE_URL="postgres://user:password@ep-sample-1234.us-east-2.aws.neon.tech/neondb?sslmode=require"
+
+# Required if using file uploads on serverless platforms
+S3_BUCKET="my-production-media"
+S3_ENDPOINT="https://<account>.r2.cloudflarestorage.com"
+S3_ACCESS_KEY_ID="your-access-key-id"
+S3_SECRET_ACCESS_KEY="your-secret-access-key"
+S3_PUBLIC_URL="https://media.example.com"
+```
+
+Verify these four requirements before deploying to production:
+
+1. **`XENON_SECRET`**: Set a strong random secret key. In production, Xenon throws the first time it needs the secret (auth or the admin) if none is set. It can also come from `BETTER_AUTH_SECRET` or `config.auth.secret`.
+2. **Hosted Postgres database**: Connect to a managed Postgres service like Neon, Supabase, or AWS RDS. Do not use embedded PGlite in production.
+3. **Object storage**: On ephemeral hosting environments (such as Vercel, AWS Lambda, or Netlify), switch from `LocalStorageAdapter` to `S3StorageAdapter`. Local disk writes on serverless hosts are not persistent.
+4. **First administrator bootstrap**: Navigate to `/admin` immediately after initial deployment to create the root administrator account.
+
+## Deploying to Vercel
+
+Vercel natively supports Next.js App Router and Server Actions.
+
+```bash
+vercel --prod
+```
+
+Configure `XENON_SECRET`, `DATABASE_URL`, and your S3 storage credentials in the Vercel project dashboard under **Settings > Environment Variables**.
+
+## Self-hosted Node.js or Docker
+
+The Dockerfile below copies Next's standalone build, so set `output: "standalone"` in `next.config.ts` first.
+
+```dockerfile title="Dockerfile"
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+COPY .next/standalone ./
+COPY .next/static ./.next/static
+COPY public ./public
+
+EXPOSE 3000
+CMD ["node", "server.js"]
+```
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/reference/fields" title="Field helpers" />
+  <Card href="/docs/reference/define-config" title="defineConfig" />
+
+</Cards>

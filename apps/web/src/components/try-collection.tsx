@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { useId, useMemo, useState } from "react";
 import { RiAddLine, RiArticleLine, RiImageLine, RiTeamLine, RiFolder3Line } from "@remixicon/react";
 
@@ -89,65 +90,74 @@ export function TryCollection() {
   );
 
   return (
-    <div className="try">
-      <label htmlFor={id} className="try-label">
+    <div className="mt-10">
+      <label htmlFor={id} className="text-small text-mist">
         Collection name
       </label>
       <input
         id={id}
-        className="try-input"
         data-ui
         value={label}
         onChange={(e) => setLabel(e.target.value)}
         spellCheck={false}
         autoComplete="off"
         maxLength={28}
+        className="mt-1 block w-full border-0 bg-transparent p-0 text-[clamp(48px,8vw,132px)] leading-[1.08] font-semibold tracking-[-0.04em] text-glow caret-paper outline-none focus-visible:underline focus-visible:decoration-glow/40 focus-visible:decoration-4 focus-visible:underline-offset-[0.14em] max-md:text-[11vw]"
       />
-      <div className="try-examples">
-        <span className="try-examples-note">Or try</span>
+      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <span className="text-mist">Or try</span>
         {EXAMPLES.map((ex) => (
-          <button key={ex} type="button" className="try-example" onClick={() => setLabel(ex)} aria-pressed={label === ex}>
+          <button
+            key={ex}
+            type="button"
+            onClick={() => setLabel(ex)}
+            aria-pressed={label === ex}
+            className="cursor-pointer py-1.5 text-paper underline decoration-mist/50 underline-offset-[5px] transition-colors hover:decoration-glow aria-pressed:text-glow aria-pressed:decoration-glow max-md:bg-coal max-md:px-4 max-md:py-3 max-md:no-underline"
+          >
             {ex}
           </button>
         ))}
       </div>
 
-      <div className="try-answer">
-        <figure className="try-code">
-          <figcaption>You write this</figcaption>
-          <pre>
+      <div className="mt-12 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-12">
+        <figure className="flex flex-col lg:col-span-5">
+          <figcaption className="mb-3 text-small text-mist">You write this</figcaption>
+          <pre className="flex-1 overflow-x-auto bg-coal p-6 text-[14px] leading-[1.7] text-paper max-md:p-5 max-md:text-[12.5px]">
             <code>{config}</code>
           </pre>
         </figure>
 
-        <figure className="try-admin">
-          <figcaption>Your editors get this</figcaption>
-          <div className="ui-admin" data-ui aria-label={`Admin screen for ${name}`}>
-            <aside className="ui-side">
-              <div className="ui-side-group">Content</div>
-              <div className="ui-side-item">
-                <RiArticleLine size={16} /> Posts
-              </div>
-              <div className="ui-side-item" data-on>
-                <RiFolder3Line size={16} /> <span className="ui-trunc">{name}</span>
-              </div>
-              <div className="ui-side-item">
-                <RiImageLine size={16} /> Media
-              </div>
-              <div className="ui-side-group">Admin</div>
-              <div className="ui-side-item">
-                <RiTeamLine size={16} /> Team
-              </div>
+        <figure className="lg:col-span-7">
+          <figcaption className="mb-3 text-small text-mist">Your editors get this</figcaption>
+          {/* The admin, in the same dark surfaces and square language as the hero demo */}
+          <div
+            data-ui
+            aria-label={`Admin screen for ${name}`}
+            className="grid min-h-[340px] grid-cols-[188px_minmax(0,1fr)] rounded-[4px] bg-[#17181b] text-[13.5px] text-paper shadow-[0_0_0_1px_rgb(255_255_255/0.08)] max-md:grid-cols-1"
+          >
+            <aside className="flex flex-col gap-0.5 px-3 py-2.5 max-md:hidden">
+              <div className="px-2 pt-3 pb-1.5 text-[12.5px] text-mist">Content</div>
+              <SideItem icon={<RiArticleLine size={16} />}>Posts</SideItem>
+              <SideItem icon={<RiFolder3Line size={16} />} on>
+                {name}
+              </SideItem>
+              <SideItem icon={<RiImageLine size={16} />}>Media</SideItem>
+              <div className="px-2 pt-3 pb-1.5 text-[12.5px] text-mist">Admin</div>
+              <SideItem icon={<RiTeamLine size={16} />}>Team</SideItem>
             </aside>
-            <div className="ui-sheet">
-              <div className="ui-sheet-head">
-                <div className="ui-sheet-title ui-trunc">{name}</div>
-                <span className="ui-btn ui-btn--primary">
-                  <RiAddLine size={16} /> <span className="ui-trunc">New {one.toLowerCase()}</span>
+            <div className="flex flex-col overflow-hidden border-l border-white/[0.08] bg-[#1b1d20] max-md:border-l-0">
+              <div className="flex items-center justify-between gap-4 px-5 py-[18px]">
+                <div className="truncate text-[18px] font-semibold tracking-[-0.01em]">{name}</div>
+                <span className="inline-flex h-8 max-w-[60%] items-center gap-1.5 rounded-[3px] bg-paper pr-3 pl-2.5 text-[13px] font-medium text-ink">
+                  <RiAddLine size={16} className="shrink-0" />
+                  <span className="truncate">New {one.toLowerCase()}</span>
                 </span>
               </div>
-              <div className="ui-table" role="table">
-                <div className="ui-tr ui-th" role="row">
+              <div className="px-5" role="table" aria-label={`${name} table`}>
+                <div
+                  role="row"
+                  className="grid grid-cols-[2fr_1fr_1fr_96px] gap-3 border-b border-white/[0.08] py-2.5 text-[12.5px] font-medium text-mist max-md:grid-cols-[2fr_1fr_80px] [&>:nth-child(3)]:max-md:hidden" // taste-skill-ignore: data-ui table header
+                >
                   {fields.slice(0, 3).map((f) => (
                     <span key={f.name} role="columnheader">
                       {f.column}
@@ -156,9 +166,9 @@ export function TryCollection() {
                   <span role="columnheader">Status</span>
                 </div>
               </div>
-              <div className="ui-empty">
-                <div className="ui-empty-title">No {name.toLowerCase()} yet</div>
-                <div className="ui-empty-text">
+              <div className="grid flex-1 place-content-center gap-1.5 px-6 py-10 text-center">
+                <div className="text-[15px] font-semibold">No {name.toLowerCase()} yet</div>
+                <div className="max-w-[34ch] text-mist">
                   Create the first {one.toLowerCase()}. It stays a draft until you publish it.
                 </div>
               </div>
@@ -166,6 +176,17 @@ export function TryCollection() {
           </div>
         </figure>
       </div>
+    </div>
+  );
+}
+
+function SideItem({ icon, on, children }: { icon: React.ReactNode; on?: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={`flex h-8 min-w-0 items-center gap-2 rounded-[3px] px-2 ${on ? "bg-white/[0.07] font-medium text-paper [&>svg]:text-glow" : "text-mist [&>svg]:text-[#6f7378]"}`}
+    >
+      <span className="contents">{icon}</span>
+      <span className="truncate">{children}</span>
     </div>
   );
 }

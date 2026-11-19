@@ -1,9 +1,24 @@
-/* Hero demo: the admin (hero) inset top, off the bottom; the config file in front, its right edge on the
-   admin's sidebar line. */
+/* Hero demo, edge to edge on the page's own gutters (the page is the frame): the admin (hero) off the bottom; the config file in front, its right edge on the
+   admin's sidebar line; the live site in the admin's free corner. Dark, in the page's own tokens: depth
+   from surface steps on coal, one lit color (xenon's glow). */
 .xh .ss-stage {
   --ss-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --xh-brand: #1b6c80;
+  --xh-brand: #5fb4c8;
+  --ss-canvas: transparent;
+  --ss-surface: #1b1d20;
+  --ss-chrome: #1f2124;
+  --ss-raised: #24272b;
+  --ss-text: #a2a6ab;
+  --ss-text-strong: #eceef0;
+  --ss-text-faint: #6f7378;
+  --ss-line: rgba(236, 238, 240, 0.08);
+  --ss-line-faint: rgba(236, 238, 240, 0.05);
+  /* The page's square language: barely-rounded windows and controls */
+  --ss-radius-window: 4px;
+  --ss-radius-sm: 3px;
+  --ss-radius-md: 3px;
   overflow: hidden;
+  background: transparent;
   font-family: var(--ss-font);
 }
 
@@ -11,12 +26,14 @@
   position: absolute;
   left: 300px;
   top: 32px;
-  width: 768px;
+  width: 800px;
   height: 540px;
-  box-shadow: var(--ss-shadow-hero);
+  /* Shadows don't read on black, and a wide one gets cut by the stage's top edge: a hairline and a
+     shadow that only falls downward */
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 28px 48px -24px rgba(0, 0, 0, 0.7);
 }
-.xh .xh-admin .ss-window__side { background: #f1f3f5; }
-.xh .xh-admin .ss-window__body { background: #fff; }
+.xh .xh-admin .ss-window__side { background: #17181b; }
+.xh .xh-admin .ss-window__body { background: #1b1d20; }
 
 .xh .xh-code {
   position: absolute;
@@ -24,20 +41,21 @@
   top: 112px;
   width: 436px;
   height: 420px;
-  box-shadow: var(--ss-shadow-satellite);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 20px 36px -16px rgba(0, 0, 0, 0.8);
 }
-.xh .xh-code .ss-window__body { background: #fbfcfd; }
+.xh .xh-code { background: var(--ss-raised); }
+.xh .xh-code .ss-window__body { background: #202327; }
 .xh .xh-code-body { position: relative; padding: 14px 4px 14px 10px; }
-.xh .xh-code .ss-code { font-size: 12px; line-height: 21px; --ss-code-key: #8a3b12; --ss-code-fn: #1b6c80; --ss-code-str: #2f6b2f; }
-.xh .xh-code .ss-code__line[data-kind="add"] { background: #e3f0f3; }
-.xh .xh-code .ss-code__line[data-kind="add"] .ss-code__mark { color: #1b6c80; }
+.xh .xh-code .ss-code { font-size: 12px; line-height: 21px; --ss-code-key: #c9a27e; --ss-code-fn: #5fb4c8; --ss-code-str: #a9c59a; color: #c7cacd; }
+.xh .xh-code .ss-code__line[data-kind="add"] { background: rgba(95, 180, 200, 0.13); }
+.xh .xh-code .ss-code__line[data-kind="add"] .ss-code__mark { color: #5fb4c8; }
 .xh .xh-dirty {
   display: block;
   width: 8px;
   height: 8px;
   margin-right: 4px;
   border-radius: 50%;
-  background: #5d6064;
+  background: #a2a6ab;
   opacity: 0;
   transform: scale(0.6);
   transition: opacity 0.25s ease, transform 0.25s ease;
@@ -49,7 +67,7 @@
 
 /* Admin sidebar */
 .xh .xh-side { display: flex; flex-direction: column; gap: 14px; padding: 6px 12px; }
-.xh .xh-brand { display: flex; align-items: center; height: 20px; padding-left: 8px; color: #131416; }
+.xh .xh-brand { display: flex; align-items: center; height: 20px; padding-left: 8px; color: #eceef0; }
 .xh .xh-mark { height: 12px; width: auto; }
 .xh .xh-nav { display: flex; flex-direction: column; gap: 2px; }
 .xh .xh-nav-item {
@@ -59,13 +77,13 @@
   padding: 0 8px;
   border-radius: 6px;
   font-size: 13px;
-  color: #3b3e42;
+  color: #a2a6ab;
 }
-.xh .xh-nav-item[data-on] { background: #e3e6ea; color: #131416; font-weight: 500; }
+.xh .xh-nav-item[data-on] { background: rgba(236, 238, 240, 0.07); color: #eceef0; font-weight: 500; }
 
 /* Toolbar */
 .xh .xh-actions { display: flex; align-items: center; gap: 10px; }
-.xh .xh-publish { --ss-accent: #16181b; }
+.xh .xh-publish { --ss-accent: #eceef0; color: #131416; }
 
 /* Document */
 .xh .xh-doc {
@@ -82,18 +100,18 @@
   font-size: 24px;
   line-height: 1.2;
   font-weight: 600;
-  color: #131416;
+  color: #eceef0;
   letter-spacing: -0.02em;
 }
 .xh .xh-lines { display: flex; flex-direction: column; gap: 9px; }
-.xh .xh-cover { width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 8px; display: block; }
+.xh .xh-cover { width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 2px; display: block; }
 
 .xh .xh-fields { display: flex; flex-direction: column; }
 .xh .xh-fields > * + * { margin-top: 16px; }
 .xh .xh-fields > .ss-collapse { margin-top: 0; }
 .xh .xh-switch-wrap { padding-top: 16px; }
-.xh .xh-field { display: flex; flex-direction: column; gap: 6px; }
-.xh .xh-label { font-size: 12.5px; line-height: 1.3; font-weight: 500; color: #3a3d41; }
+.xh .xh-field { display: flex; flex-direction: column; gap: 4px; }
+.xh .xh-label { font-size: 12.5px; line-height: 1.3; font-weight: 500; color: #a2a6ab; }
 .xh .xh-select,
 .xh .xh-input {
   display: flex;
@@ -102,15 +120,15 @@
   gap: 8px;
   height: 32px;
   padding: 0 10px;
-  border: 1px solid #d3d6da;
-  border-radius: 7px;
+  border: 1px solid rgba(236, 238, 240, 0.1);
+  border-radius: 3px;
   font-size: 13px;
-  color: #131416;
-  background: #fff;
+  color: #eceef0;
+  background: #17181b;
   white-space: nowrap;
   overflow: hidden;
 }
-.xh .xh-input { color: #5d6064; justify-content: flex-start; }
+.xh .xh-input { color: #8a8e93; justify-content: flex-start; }
 .xh .xh-switch {
   display: flex;
   align-items: center;
@@ -118,13 +136,46 @@
   gap: 12px;
   height: 44px;
   padding: 0 12px;
-  border-radius: 8px;
-  background: #e3f0f3;
+  border-radius: 3px;
+  background: rgba(95, 180, 200, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(95, 180, 200, 0.22);
 }
-.xh .xh-switch .xh-label { color: #0f4250; }
+.xh .xh-switch .xh-label { color: #cfe9ef; }
 .xh .ss-toggle[data-on] { background: var(--xh-brand); }
 
-.xh .xh-toast-slot { position: absolute; right: 24px; top: 300px; }
+/* The live site: a light page in the admin's free corner, off the bottom */
+.xh .xh-site {
+  position: absolute;
+  left: 836px;
+  top: 296px;
+  width: 232px;
+  height: 260px;
+  background: #f7f8f6;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12), 0 18px 40px -12px rgba(0, 0, 0, 0.7);
+}
+.xh .xh-site .ss-window__url { font-size: 10px; color: #5d6064; }
+.xh .xh-site-body { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px; }
+.xh .xh-site-head { font-size: 15px; line-height: 1.2; font-weight: 600; color: #131416; letter-spacing: -0.01em; }
+.xh .xh-post { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: start; }
+.xh .xh-post-img { display: block; width: 52px; height: 52px; border-radius: 2px; object-fit: cover; }
+.xh .xh-post-img--blank { background: #e7eaed; }
+.xh .xh-post-text { display: flex; flex-direction: column; gap: 7px; min-width: 0; padding-top: 2px; }
+.xh .xh-post-text > .ss-collapse { margin-bottom: -7px; }
+.xh .xh-flag-wrap { padding-bottom: 7px; }
+.xh .xh-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 66px;
+  height: 18px;
+  justify-content: center;
+  border-radius: 9px;
+  background: #04232b;
+  color: #9fd6e3;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+.xh .xh-post-title { font-size: 13px; line-height: 1.3; font-weight: 600; color: #131416; }
 
 /* Phone column: the config's fields on top, the post's settings below */
 .xh .ss-stage[data-layout="compact"] .xh-code { left: 16px; top: 214px; width: 326px; height: 200px; }
@@ -133,7 +184,6 @@
 .xh .ss-stage[data-layout="compact"] .xh-admin { left: 16px; top: 16px; width: 326px; height: 420px; }
 .xh .ss-stage[data-layout="compact"] .xh-doc { grid-template-columns: minmax(0, 1fr); padding: 16px 16px 0; }
 .xh .ss-stage[data-layout="compact"] .xh-title { font-size: 18px; }
-.xh .ss-stage[data-layout="compact"] .xh-toast-slot { right: auto; left: 16px; top: 176px; }
 .xh .ss-stage[data-layout="compact"] .xh-status .ss-badge__label { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Parts that ride the switch's arrival keep their own layer, so their text doesn't step */
@@ -141,3 +191,6 @@
 .xh .xh-nav-item { will-change: transform; }
 
 .xh .ss-code__line { will-change: transform; }
+
+/* No ground of its own: the demo sits on the page's void */
+.xh .ss-ground { background: none; }

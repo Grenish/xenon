@@ -1,0 +1,87 @@
+---
+title: Drafts and publishing
+description: Manage draft revisions, publish workflows, and unpublish operations across collections in Xenon.
+---
+
+## Draft lifecycle
+
+You can draft edits privately, preview unpublished changes, and publish documents when ready.
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, text } from "xenon-cms";
+
+export const articles = defineCollection({
+  slug: "articles",
+  drafts: true, // enabled by default
+  fields: {
+    title: text({ required: true }),
+    content: text({ required: true }),
+  },
+});
+```
+
+When `drafts: true` is active, every document tracks a lifecycle `status` of either `"draft"` or `"published"`.
+
+## How drafts work
+
+Xenon isolates draft revisions from published content at the database level:
+
+```text
+┌────────────────────────────────────────────────────────┐
+│                   Document Database                    │
+├──────────────────────────┬─────────────────────────────┤
+│  Published Data (data)   │    Draft Data (draftData)   │
+│  Live on public site     │    Staged working copy      │
+├──────────────────────────┴─────────────────────────────┤
+│  Status: "published" (live) or "draft" (unpublished)   │
+└────────────────────────────────────────────────────────┘
+```
+
+1. **Saving drafts**: Writing with `draft: true` saves attributes into `draftData` without altering live `data`. Validation runs in draft mode: `required` constraints are relaxed, allowing partial or unfinished entries.
+2. **Publishing**: Publishing validates all required fields against create rules. The working draft merges into `data`, `draftData` is cleared to `null`, and `status` updates to `"published"`.
+3. **Unpublishing**: Calling `unpublish` moves current `data` into `draftData` (if no newer draft exists) and marks `status` as `"draft"`. The document immediately disappears from public queries.
+
+## Querying draft content
+
+Control whether your queries return live published records or staging drafts.
+
+```ts title="src/app/preview/[slug]/page.tsx"
+import { getXenon } from "xenon-cms/next";
+import config from "@/xenon.config";
+
+export default async function PreviewPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+
+  // Reads published records only by default
+  const liveDoc = await getXenon(config).findBySlug({
+    collection: "articles",
+    slug,
+  });
+
+  // Include unpublished drafts and staged revisions
+  const draftDoc = await getXenon(config).findBySlug({
+    collection: "articles",
+    slug,
+    draft: true,
+  });
+
+  return <div>{draftDoc?.title} (Status: {draftDoc?.status})</div>;
+}
+```
+
+When `draft: true` is supplied, field values resolve from `draftData ?? data`.
+
+<Callout>
+
+Upload collections ignore the `drafts` setting. Files and media metadata publish immediately upon upload.
+
+</Callout>
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/concepts/access" title="Access control" />
+  <Card href="/docs/concepts/types" title="Type inference" />
+
+</Cards>

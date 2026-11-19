@@ -1,0 +1,79 @@
+---
+title: Caching and revalidation
+description: Leverage Next.js cache primitives and automatic tag-based revalidation with Xenon content queries.
+---
+
+## Cache integration
+
+You can cache content queries with Next.js caching primitives and revalidate them automatically on publish.
+
+`"use cache"` and `cacheTag()` need Cache Components turned on in your Next.js config:
+
+```ts title="next.config.ts"
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  cacheComponents: true,
+};
+
+export default nextConfig;
+```
+
+```ts title="src/lib-content.ts"
+import { cacheLife, cacheTag } from "next/cache";
+import { getXenon, xenonTags } from "xenon-cms/next";
+import config, { type Post } from "@/xenon.config";
+
+export async function getPublishedPosts() {
+  "use cache";
+  cacheTag(xenonTags.collection("posts"));
+  cacheLife("max");
+
+  const { docs } = await getXenon(config).find({
+    collection: "posts",
+    sort: "-createdAt",
+    limit: 20,
+  });
+
+  return docs as Post[];
+}
+```
+
+The `xenonTags` utility produces standardized cache tags that match the internal invalidation triggers emitted by Xenon.
+
+## Available cache tag helpers
+
+Import `xenonTags` from `xenon-cms/next` to target specific invalidation scopes:
+
+| Helper | Example output | Scope |
+| --- | --- | --- |
+| `xenonTags.all` | `xenon` | A string, not a function. Invalidated when any document is created, updated, published, unpublished or deleted. |
+| `xenonTags.collection(slug)` | `xenon:posts` | Invalidated when any document inside the specified collection is created, updated, or removed. |
+| `xenonTags.doc(slug, id)` | `xenon:posts:<id>` | Invalidated only when that specific document is updated or published. |
+
+## Automatic revalidation triggers
+
+When editors make changes in the admin dashboard or via API endpoints, `getXenon` automatically calls Next.js `revalidateTag` across three tiers:
+
+```text
+Document Published / Saved
+          │
+          ├── revalidateTag("xenon")
+          ├── revalidateTag("xenon:posts")
+          └── revalidateTag("xenon:posts:01934...")
+```
+
+1. **Global tag (`xenon`)**: Flushes site-wide queries that depend on overall CMS state.
+2. **Collection tag (`xenon:{collection}`)**: Flushes listing pages, archive indexes, and category views for that collection.
+3. **Document tag (`xenon:{collection}:{id}`)**: Flushes individual detail pages displaying the modified document.
+
+This ensures your public routes serve static cached HTML while reflecting editorial updates immediately upon publishing.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/guides/uploads" title="Uploads and media" />
+  <Card href="/docs/guides/postgres" title="Postgres" />
+
+</Cards>

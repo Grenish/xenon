@@ -42,6 +42,7 @@ bun run dev                 # tsup --watch for xenon-cms
 bun run test                # bun test in packages/xenon
 bun run typecheck           # tsc --noEmit across workspaces
 bun run playground          # next dev in apps/playground
+bun run web                 # next dev in apps/web (landing page, :3100)
 ```
 
 ## Conventions

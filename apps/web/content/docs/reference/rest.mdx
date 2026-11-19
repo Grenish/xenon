@@ -1,0 +1,108 @@
+---
+title: REST endpoints
+description: Complete HTTP specification for the Xenon REST API route handlers, parameters, and responses.
+---
+
+## Endpoint specification
+
+The Xenon REST API is mounted under `app/api/xenon/[...slug]/route.ts`.
+
+```text
+/api/xenon/
+├── :collection              (GET, POST)
+├── :collection/:id          (GET, PATCH, DELETE)
+├── :collection/:id/unpublish (POST)
+├── _files/*                 (GET)
+├── _presence                (POST)
+└── auth/*                   (BetterAuth endpoints)
+```
+
+Published reads are public by default unless restricted by collection access rules. Protected operations require either a session cookie from `/admin/login` or an `Authorization: Bearer <key>` header matching a key configured in `auth.apiKeys`.
+
+## Document endpoints
+
+### List documents
+
+`GET /api/xenon/:collection`
+
+Returns a paginated list of collection documents.
+
+**Query parameters:**
+- `where[field][operator]=value`: Filter conditions.
+- `where=<json>`: JSON-encoded where filter object.
+- `sort`: Sort key (e.g., `-createdAt`).
+- `limit`: Documents per page (default: 10). Values above 100 are capped at 100, and `0` also means 100.
+- `page`: Page number (default: 1).
+- `draft=true`: Include unpublished drafts (requires authenticated user).
+
+### Get document by id
+
+`GET /api/xenon/:collection/:id`
+
+Returns a single document object by its UUID.
+
+### Create document
+
+`POST /api/xenon/:collection`
+
+Creates a new document. Send JSON for standard collections or `multipart/form-data` with `file` and `data` JSON for upload collections.
+
+Append `?draft=true` to save as an unpublished draft.
+
+### Update document
+
+`PATCH /api/xenon/:collection/:id`
+
+Updates specified fields on an existing document. Send an `If-Match: "2026-11-19T10:00:00.000Z"` header to enforce optimistic concurrency control.
+
+### Delete document
+
+`DELETE /api/xenon/:collection/:id`
+
+Deletes the document and purges any associated upload asset from storage.
+
+### Unpublish document
+
+`POST /api/xenon/:collection/:id/unpublish`
+
+Moves the live document back into draft status.
+
+## Storage and system routes
+
+### File download
+
+`GET /api/xenon/_files/:key*`
+
+Streams binary assets from local storage. External S3 configurations serve assets directly from the configured `publicUrl` instead.
+
+### Presence heartbeat
+
+`POST /api/xenon/_presence`
+
+Sends heartbeat pings to refresh active edit locks. Authenticated via HMAC presence tokens minted by the admin dashboard.
+
+## Error responses
+
+When a request fails, Xenon returns an error object:
+
+```json
+{
+  "errors": [
+    {
+      "message": "This field is required",
+      "path": ["title"]
+    }
+  ]
+}
+```
+
+HTTP status codes correspond to standard semantics: `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, and `409 Conflict`.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/reference/adapters" title="Database and storage adapters" />
+  <Card href="/docs/reference/errors" title="Errors" />
+
+</Cards>

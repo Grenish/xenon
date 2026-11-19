@@ -1,0 +1,158 @@
+---
+title: Quickstart guide
+description: Define a collection, mount the admin UI, and render published content on your site in four steps.
+---
+
+## Steps
+
+You can set up a complete CMS workflow with an admin interface and typed content queries in four steps.
+
+<Steps>
+
+### Define your configuration
+
+Create a `xenon.config.ts` file in your `src/` directory (or the project root; see the note on imports in [Project structure](/docs/start/project-structure#the-configuration-file)).
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, defineConfig, text, textarea } from "xenon-cms";
+import type { InferCollectionType } from "xenon-cms";
+import { pgliteAdapter } from "xenon-cms/pglite";
+import { LocalStorageAdapter } from "xenon-cms/storage/local";
+
+const posts = defineCollection({
+  slug: "posts",
+  slugFrom: "title",
+  admin: { useAsTitle: "title" },
+  fields: {
+    title: text({ required: true, maxLength: 200 }),
+    excerpt: textarea(),
+  },
+});
+
+export type Post = InferCollectionType<typeof posts>;
+
+export default defineConfig({
+  collections: [posts],
+  db: pgliteAdapter({ dataDir: ".xenon/pgdata" }),
+  storage: new LocalStorageAdapter({
+    directory: ".xenon/uploads",
+  }),
+});
+```
+
+This configuration defines a `posts` collection, configures an embedded PGlite database storing data in `.xenon/pgdata`, and configures local file storage in `.xenon/uploads`. It needs `@electric-sql/pglite` installed and two Next.js settings:
+
+```ts title="next.config.ts"
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: ["@electric-sql/pglite"],
+  experimental: { cpus: 1 },
+};
+
+export default nextConfig;
+```
+
+`cpus: 1` makes `next build` use a single worker. Only one process can open a PGlite database at a time, so when several static pages read it while they prerender, the default worker count fails with an "already open in another process" error. A site with a single page that reads PGlite builds either way.
+
+### Mount the API route
+
+Create an App Router catch-all route at `app/api/xenon/[...slug]/route.ts`.
+
+```ts title="src/app/api/xenon/[...slug]/route.ts"
+import config from "@/xenon.config";
+import { createApiHandler } from "xenon-cms/next";
+
+export const { GET, POST, PATCH, DELETE } = createApiHandler(config);
+```
+
+The `createApiHandler` helper handles REST endpoints for collection CRUD, drafts, publishing, and file uploads.
+
+### Mount the admin interface
+
+Create an optional catch-all route for the admin panel at `app/admin/[[...segments]]/page.tsx`.
+
+```tsx title="src/app/admin/[[...segments]]/page.tsx"
+import "xenon-cms/styles.css";
+import config from "@/xenon.config";
+import {
+  AdminPage,
+  type AdminActionInput,
+  type AdminPageProps,
+  runAdminAction,
+} from "xenon-cms/next";
+
+export const metadata = { title: "Xenon Admin" };
+
+async function action(input: AdminActionInput) {
+  "use server";
+  return runAdminAction(config, input);
+}
+
+export default function Page(props: Pick<AdminPageProps, "params" | "searchParams">) {
+  return <AdminPage config={config} action={action} {...props} />;
+}
+```
+
+This renders the full Xenon admin dashboard at `/admin`, backed by a Server Action for mutations.
+
+### Query and render content
+
+Fetch and render your published content directly in an async React Server Component.
+
+```tsx title="src/app/page.tsx"
+import Link from "next/link";
+import { getXenon } from "xenon-cms/next";
+import config, { type Post } from "@/xenon.config";
+
+export default async function HomePage() {
+  const { docs } = await getXenon(config).find({
+    collection: "posts",
+    sort: "-createdAt",
+  });
+  const posts = docs as Post[];
+
+  return (
+    <main style={{ maxWidth: "640px", margin: "40px auto", padding: "0 16px" }}>
+      <h1>Latest Posts</h1>
+      {posts.length === 0 ? (
+        <p>No posts published yet. Visit <Link href="/admin">/admin</Link> to create one.</p>
+      ) : (
+        <ul>
+          {posts.map((post) => (
+            <li key={post.id} style={{ marginBottom: "20px" }}>
+              <h2>{post.title}</h2>
+              {post.excerpt && <p>{post.excerpt}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </main>
+  );
+}
+```
+
+The `getXenon(config).find` call executes directly within your server process with no HTTP round trip to a separate CMS API.
+
+</Steps>
+
+## Launching the application
+
+Start your Next.js development server.
+
+```bash
+bun dev
+```
+
+Open `http://localhost:3000/admin` in your browser. With no users yet, the admin displays a setup screen: "Create the first admin account. You can invite editors afterwards." Click **Create admin account** and register your initial administrator.
+
+Once in the admin, create a new post, enter a title, click **Publish**, and navigate to `http://localhost:3000` to see your post displayed.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/start/project-structure" title="Project structure" />
+  <Card href="/docs/concepts/collections" title="Collections" />
+
+</Cards>

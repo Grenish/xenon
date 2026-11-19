@@ -1,0 +1,129 @@
+---
+title: Fields
+description: Configure data attributes, validation constraints, and admin input widgets with Xenon field helpers.
+---
+
+## Declaring fields
+
+You can define data fields for a collection using built-in helper functions keyed by field name.
+
+```ts title="src/xenon.config.ts"
+import {
+  boolean,
+  defineCollection,
+  media,
+  number,
+  relation,
+  richText,
+  select,
+  text,
+  textarea,
+} from "xenon-cms";
+
+export const posts = defineCollection({
+  slug: "posts",
+  fields: {
+    title: text({ required: true, maxLength: 200 }),
+    summary: textarea({ rows: 4 }),
+    rating: number({ min: 1, max: 5, integer: true }),
+    published: boolean({ defaultValue: false }),
+    status: select({ options: ["draft", "review", "published"] }),
+    body: richText(),
+    heroImage: media({ relationTo: "media" }),
+    author: relation({ relationTo: "authors" }),
+  },
+});
+```
+
+Fields are declared as an object map where each key becomes the field identifier in the database and in TypeScript typings. Reserved keys (`id`, `slug`, `status`, `createdAt`, `updatedAt`, or names beginning with `_`) cannot be used.
+
+## Common field options
+
+All field helpers accept the following common options:
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `label` | `string` | Humanized key | Custom label displayed in admin forms. |
+| `required` | `boolean` | `false` | When true, enforces non-empty values on published documents. |
+| `defaultValue` | Field value type | `undefined` | Initial value populated on new documents. |
+| `admin` | `FieldAdminOptions` | `{}` | Controls admin UI behavior (`description`, `placeholder`, `hidden`, `readOnly`, `position`). |
+| `validate` | `(value, ctx) => true \| string` | `undefined` | Custom validation function returning true or an error string. |
+
+## Available field types
+
+Xenon provides eight specialized field helpers:
+
+### text and textarea
+
+`text()` renders a single-line input, while `textarea()` renders a multi-line input.
+
+```ts
+title: text({ minLength: 3, maxLength: 100, pattern: /^[A-Z]/ }),
+bio: textarea({ rows: 5, maxLength: 500 }),
+```
+
+Both helpers support `minLength` and `maxLength`. `text()` also accepts a `pattern` regular expression.
+
+### number and boolean
+
+`number()` handles numeric inputs, while `boolean()` renders a toggle switch.
+
+```ts
+price: number({ min: 0, max: 10000 }),
+viewCount: number({ integer: true, defaultValue: 0 }),
+isFeatured: boolean({ defaultValue: false }),
+```
+
+`number()` accepts `min`, `max`, and `integer` flags.
+
+### select
+
+`select()` renders a single-choice dropdown or multi-choice list.
+
+```ts
+role: select({
+  options: [
+    { label: "Admin User", value: "admin" },
+    { label: "Editor User", value: "editor" },
+  ],
+  required: true,
+}),
+tags: select({
+  options: ["tech", "design", "news"],
+  hasMany: true,
+}),
+```
+
+The `options` array accepts either strings or objects with `label` and `value`. Set `hasMany: true` to allow multiple selections.
+
+### richText
+
+`richText()` provides a formatted text editor producing ProseMirror/Tiptap JSON documents.
+
+```ts
+content: richText(),
+```
+
+Stored values follow the structure `{ type: "doc", content?: RichTextNode[] }`. Use the `RichText` component from `xenon-cms/react` to render rich text content in React Server Components.
+
+### media and relation
+
+`media()` references an upload collection, while `relation()` links to any declared collection.
+
+```ts
+coverImage: media({ relationTo: "media" }),
+gallery: media({ relationTo: "media", hasMany: true }),
+author: relation({ relationTo: "authors", required: true }),
+categories: relation({ relationTo: "categories", hasMany: true }),
+```
+
+`media()` requires `relationTo` to point to a collection where `upload: true` is configured. Both helpers store document UUID strings and support `hasMany: true` for arrays of IDs.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/concepts/drafts" title="Drafts and publishing" />
+  <Card href="/docs/concepts/access" title="Access control" />
+
+</Cards>

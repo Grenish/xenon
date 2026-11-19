@@ -1,0 +1,71 @@
+---
+title: defineCollection
+description: API reference for the defineCollection function, collection configuration options, and validation rules.
+---
+
+## Overview
+
+The `defineCollection` function declares a content collection schema with TypeScript type inference.
+
+```ts
+import { defineCollection, text } from "xenon-cms";
+
+export const posts = defineCollection({
+  slug: "posts",
+  labels: { singular: "Post", plural: "Posts" },
+  slugFrom: "title",
+  drafts: true,
+  upload: false,
+  admin: {
+    useAsTitle: "title",
+    defaultColumns: ["title", "status"],
+  },
+  fields: {
+    title: text({ required: true }),
+  },
+});
+```
+
+The function performs light runtime verification of the schema structure and preserves literal types for downstream inference.
+
+## Configuration options
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `slug` | `string` | Required | Unique identifier matching `/^[a-z][a-z0-9-]*$/`. Cannot be `auth`, `_files`, or start with `_`. |
+| `fields` | `Record<string, Field>` | Required | Object map of field definitions keyed by name. Cannot use reserved system keys. |
+| `labels` | `{ singular?: string; plural?: string }` | Humanized slug | Display labels used throughout the admin dashboard. |
+| `slugFrom` | `string` | `undefined` | Key of a declared `text` field used to derive document slugs. |
+| `drafts` | `boolean` | `true` | Enables draft saving and publishing workflows. Ignored on upload collections. |
+| `upload` | `boolean \| UploadConfig` | `false` | Enables binary asset management and injects system media fields. |
+| `admin` | `CollectionAdminOptions` | `{}` | `useAsTitle`, `defaultColumns`, `group` and `description` for the admin's list and sidebar. |
+| `access` | `CollectionAccess` | Default rules | Authorization callback functions for CRUD operations. |
+
+## admin options
+
+The `admin` object customizes how collection records display in `/admin`:
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `useAsTitle` | `string` | `"id"` | Field key rendered as the document title in breadcrumbs and selects. |
+| `defaultColumns` | `string[]` | `["id", "createdAt"]` | Keys displayed as columns in the collection list table. Accepts field keys and system keys (`id`, `slug`, `status`, `createdAt`, `updatedAt`). |
+| `group` | `string` | `undefined` | Sidebar navigation group header. |
+| `description` | `string` | `undefined` | Help text or summary displayed for the collection in the admin dashboard. |
+
+## upload options
+
+When `upload` is configured as an object:
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `mimeTypes` | `string[]` | All types | Array of permitted MIME types or wildcards (e.g., `["image/*"]`). |
+| `maxFileSize` | `number` | Unlimited | Maximum permitted file size in bytes. |
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/reference/define-config" title="defineConfig" />
+  <Card href="/docs/reference/local-api" title="Local API" />
+
+</Cards>

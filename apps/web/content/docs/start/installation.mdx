@@ -1,0 +1,110 @@
+---
+title: Installation
+description: Install Xenon and its peer dependencies into an existing Next.js App Router application.
+---
+
+## Requirements
+
+You can install Xenon into any existing Next.js App Router project that meets the following peer dependency versions:
+
+| Package | Version | Requirement |
+| --- | --- | --- |
+| `next` | `>=16.0.0` | Needed for `xenon-cms/next` and the admin |
+| `react` | `>=19.0.0` | Needed for `xenon-cms/next` and the admin |
+| `react-dom` | `>=19.0.0` | Needed for `xenon-cms/next` and the admin |
+| `postgres` | `>=3.4.0` | Needed for `xenon-cms/postgres` only |
+| `@electric-sql/pglite` | `>=0.3.0` | Needed for `xenon-cms/pglite` only |
+
+## Core package
+
+Build an installable tarball from a [Xenon source checkout](https://github.com/Grenish/xenon). From the root of that checkout, run:
+
+```bash
+bun install --frozen-lockfile
+bun run build
+cd packages/xenon
+bun pm pack --filename xenon-cms.tgz
+```
+
+In the directory containing your Next.js app’s `package.json`, copy the archive into the app. Replace `/path/to/xenon` with the path to your checkout.
+
+```bash
+mkdir -p vendor
+cp /path/to/xenon/packages/xenon/xenon-cms.tgz vendor/
+```
+
+<Install pkg="./vendor/xenon-cms.tgz" />
+
+Keep the tarball with the app so a fresh install in CI can resolve the same dependency. Apps inside the Xenon Bun workspace can use `"xenon-cms": "workspace:*"` like the playground.
+
+## Database drivers
+
+Each database has its own import, and you install only the driver it uses.
+
+| Import | Adapter | Install |
+| --- | --- | --- |
+| `xenon-cms/postgres` | `postgresAdapter({ connectionString })` | `postgres` |
+| `xenon-cms/pglite` | `pgliteAdapter({ dataDir })` | `@electric-sql/pglite` |
+| `xenon-cms/drizzle` | `drizzleAdapter({ db })` | Nothing; you bring your own Drizzle database |
+
+### Postgres server
+
+For a [Postgres server](/docs/start/existing-project#install-the-package-and-connect-postgres), install `postgres` and pass your database URL to `postgresAdapter`.
+
+<Install pkg="postgres" />
+
+### Embedded database for local development
+
+For a [local database](/docs/start/new-project#install-xenon-and-a-local-database), install PGlite and pass a data directory to `pgliteAdapter`.
+
+<Install pkg="@electric-sql/pglite" />
+
+PGlite needs two Next.js settings. `serverExternalPackages` lets Next.js load its WebAssembly files from the installed package:
+
+```ts title="next.config.ts"
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: ["@electric-sql/pglite"],
+  experimental: { cpus: 1 },
+};
+
+export default nextConfig;
+```
+
+`cpus: 1` makes `next build` use a single worker. Only one process can open a PGlite database at a time, so when several static pages read it while they prerender, the default worker count fails with an "already open in another process" error. A site with a single page that reads PGlite builds either way.
+
+The Postgres and Drizzle adapters need no Next.js configuration.
+
+## Admin stylesheets
+
+The admin interface requires the Xenon base stylesheet for layout and controls.
+
+```tsx title="src/app/admin/[[...segments]]/page.tsx"
+import "xenon-cms/styles.css";
+```
+
+Import this CSS file at the top of your admin page route.
+
+## Environment variables
+
+Add the appropriate environment variables to your `.env.local` file.
+
+```dotenv title=".env.local"
+# Set via XENON_SECRET, BETTER_AUTH_SECRET, or config.auth.secret
+XENON_SECRET="your-secure-random-secret"
+
+# Required for postgresAdapter
+DATABASE_URL="postgres://user:password@localhost:5432/mydb"
+```
+
+Xenon resolves secrets in order: `config.auth.secret`, `XENON_SECRET`, then `BETTER_AUTH_SECRET`. Outside production, Xenon falls back to a fixed development secret. In production, it throws an error the first time the secret is needed (for authentication or admin routes) if none is configured. The secret signs sessions and admin presence tokens.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/start/quickstart" title="Quickstart" />
+  <Card href="/docs/start/project-structure" title="Project structure" />
+
+</Cards>

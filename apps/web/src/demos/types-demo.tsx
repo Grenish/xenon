@@ -110,15 +110,16 @@ export function TypesDemo() {
   return (
     <Stage
       width={660}
-      height={440}
-      compact={{ below: 600, width: 358, height: 380 }}
+      height={500}
+      compact={{ below: 600, width: 358, height: 350 }}
       initial={initial}
       poster={POSTER}
       script={script}
       cursor={{ at: REST, idle: 500 }}
       keys={{ wide: "bottom-right", compact: "bottom-left" }}
-      accent="#1b6c80"
-      greys="cool"
+      accent="#5fb4c8"
+      theme="dark"
+      fill
       className="xt"
     >
       {(s, rect, layout) => {
@@ -127,7 +128,7 @@ export function TypesDemo() {
         const source = SOURCE[layout];
         return (
           <>
-            <Window title="app/blog/page.tsx" className="xt-win">
+            <Window lights="grey" title="app/blog/page.tsx" className="xt-win">
               <div className="xt-body" data-cursor="ibeam">
                 <Code lines={source.before} numbers={!compact} />
                 <div className="xt-edit" style={{ "--xt-prefix": `${source.prefix.length}ch` } as React.CSSProperties}>

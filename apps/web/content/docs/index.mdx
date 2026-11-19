@@ -1,0 +1,74 @@
+---
+title: Introduction to Xenon
+description: Xenon is a code-first, Next.js-native headless CMS with TypeScript schema definitions, built-in admin, and local server queries.
+---
+
+## Overview
+
+You can define content models in TypeScript, edit documents in an embedded admin interface, and query data in Server Components without making HTTP requests to a separate API.
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, defineConfig, text, textarea } from "xenon-cms";
+import { postgresAdapter } from "xenon-cms/postgres";
+
+const posts = defineCollection({
+  slug: "posts",
+  fields: {
+    title: text({ required: true }),
+    excerpt: textarea(),
+  },
+});
+
+export default defineConfig({
+  collections: [posts],
+  db: postgresAdapter({ connectionString: process.env.DATABASE_URL! }),
+});
+```
+
+Xenon runs inside your Next.js application as a package rather than a separate hosted service. Your schemas, database connection, and storage adapters live directly in your source tree.
+
+## Architecture
+
+Xenon divides responsibilities across three distinct layers:
+
+1. **Schema and validation (`xenon-cms`)**: Define collections and fields with TypeScript type inference and runtime validation.
+2. **Storage and database (`xenon-cms/postgres`, `xenon-cms/storage/local`, `xenon-cms/storage/s3`)**: Pluggable adapters handle document persistence and binary file uploads.
+3. **Next.js App Router (`xenon-cms/next`)**: Server Component helpers, the `/admin` UI, and the `/api/xenon` REST route handler.
+
+## Query in Server Components
+
+You can fetch published documents directly in React Server Components without HTTP overhead.
+
+```tsx title="src/app/page.tsx"
+import { getXenon } from "xenon-cms/next";
+import config from "@/xenon.config";
+
+export default async function Page() {
+  const { docs } = await getXenon(config).find({
+    collection: "posts",
+    sort: "-createdAt",
+  });
+
+  return (
+    <main>
+      <h1>Posts</h1>
+      <ul>
+        {docs.map((post) => (
+          <li key={post.id}>{post.title}</li>
+        ))}
+      </ul>
+    </main>
+  );
+}
+```
+
+The `getXenon` function runs directly within your server process. Document reads execute against your database with no HTTP round trip to a separate CMS API.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/start/new-project" title="Start a new project">Create a Next.js app and publish your first post.</Card>
+  <Card href="/docs/start/existing-project" title="Add Xenon to an existing project">Mount the CMS alongside your existing routes.</Card>
+
+</Cards>

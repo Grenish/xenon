@@ -11,6 +11,7 @@ import {
   textarea,
 } from "xenon-cms";
 import type { InferCollectionType } from "xenon-cms";
+import { pgliteAdapter } from "xenon-cms/pglite";
 import { postgresAdapter } from "xenon-cms/postgres";
 import { LocalStorageAdapter } from "xenon-cms/storage/local";
 
@@ -49,7 +50,7 @@ export default defineConfig({
   // DATABASE_URL → real Postgres; otherwise an embedded PGlite database in .xenon/ (zero setup).
   db: process.env.DATABASE_URL
     ? postgresAdapter({ connectionString: process.env.DATABASE_URL })
-    : postgresAdapter({ pglite: { dataDir: ".xenon/pgdata" } }),
+    : pgliteAdapter({ dataDir: ".xenon/pgdata" }),
   storage: new LocalStorageAdapter({ directory: ".xenon/uploads" }),
   auth: {
     apiKeys: process.env.XENON_API_KEY ? [{ key: process.env.XENON_API_KEY, role: "editor", name: "playground" }] : [],

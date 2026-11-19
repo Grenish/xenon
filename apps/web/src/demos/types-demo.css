@@ -1,17 +1,27 @@
+/* Types demo: on the page's own ground like the hero, the editor inset top-left and running off the
+   right and bottom, fading out at its foot. The same square language and surfaces as the hero. */
 .xt .ss-stage {
   --ss-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --ss-canvas: transparent;
+  --ss-surface: #1b1d20;
+  --ss-chrome: #1f2124;
+  --ss-radius-window: 4px;
+  --ss-radius-sm: 3px;
+  --ss-radius-md: 3px;
   overflow: hidden;
   font-family: var(--ss-font);
 }
+.xt .ss-ground { background: none; }
 .xt .xt-win {
   position: absolute;
   left: 32px;
   top: 32px;
   width: 700px;
-  height: 470px;
-  box-shadow: var(--ss-shadow-hero);
+  height: 530px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 28px 48px -24px rgba(0, 0, 0, 0.7);
 }
-.xt .xt-win .ss-window__body { background: #fff; }
+.xt .xt-win .ss-window__body { background: #1b1d20; }
+.xt .ss-stage { background: transparent; }
 .xt .xt-body {
   --xt-gutter: 46px; /* Code's line number and diff marker */
   padding: 16px 0 16px 12px;
@@ -19,9 +29,10 @@
 }
 .xt .ss-code {
   font: inherit;
-  --ss-code-key: #8a3b12;
-  --ss-code-fn: #1b6c80;
-  --ss-code-str: #2f6b2f;
+  --ss-code-key: #c9a27e;
+  --ss-code-fn: #5fb4c8;
+  --ss-code-str: #a9c59a;
+  color: #c7cacd;
 }
 /* Preserve the line's flex layout and character metrics through the stage's code-element reset. */
 .xt .ss-code__row { display: contents; font: inherit; }
@@ -38,27 +49,27 @@
   position: absolute;
   top: 2px;
   bottom: 2px;
-  border-left: 1.5px solid #1b6c80;
+  border-left: 1.5px solid #5fb4c8;
 }
 
 .xt .xt-pop {
   position: absolute;
   width: 300px;
   padding: 4px;
-  border-radius: 9px;
-  --ss-popover-bg: #fff;
+  border-radius: 4px;
+  --ss-popover-bg: #24272b;
 }
 .xt .xt-pop .ss-menu { --ss-row: 30px; }
 .xt .xt-item { display: grid; grid-template-columns: 18px auto minmax(0, 1fr); align-items: center; gap: 8px; width: 100%; font-size: 13px; }
-.xt .xt-kind { display: grid; place-items: center; color: #1b6c80; }
-.xt .xt-name { font: 500 12.5px/1 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; color: #131416; }
-.xt .xt-type { justify-self: end; font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; color: #5d6064; white-space: nowrap; }
+.xt .xt-kind { display: grid; place-items: center; color: #5fb4c8; }
+.xt .xt-name { font: 500 12.5px/1 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; color: #eceef0; }
+.xt .xt-type { justify-self: end; font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; color: #a2a6ab; white-space: nowrap; }
 
 .xt .ss-stage[data-layout="compact"] .xt-win {
   left: 16px;
   top: 16px;
   width: 382px;
-  height: 328px;
+  height: 420px;
 }
 .xt .ss-stage[data-layout="compact"] .xt-body {
   --xt-gutter: 16px; /* Only the diff marker remains without line numbers. */

@@ -3,6 +3,13 @@
   "version": "0.0.1",
   "description": "Lightweight, code-first, Next.js-native headless CMS.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Grenish/xenon.git",
+    "directory": "packages/xenon"
+  },
+  "homepage": "https://github.com/Grenish/xenon#readme",
+  "bugs": "https://github.com/Grenish/xenon/issues",
   "type": "module",
   "sideEffects": [
     "*.css",
@@ -31,6 +38,14 @@
     "./postgres": {
       "types": "./dist/postgres.d.ts",
       "import": "./dist/postgres.js"
+    },
+    "./pglite": {
+      "types": "./dist/pglite.d.ts",
+      "import": "./dist/pglite.js"
+    },
+    "./drizzle": {
+      "types": "./dist/drizzle.d.ts",
+      "import": "./dist/drizzle.js"
     },
     "./memory": {
       "types": "./dist/memory.d.ts",

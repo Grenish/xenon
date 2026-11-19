@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { postgresAdapter } from "../../src/adapters/postgres";
+import { pgliteAdapter } from "../../src/adapters/postgres/pglite";
 
 /** PGlite has no cross-process locking; the adapter guards a file-backed data directory itself. */
 describe("PGlite data directory lock", () => {
@@ -15,14 +15,14 @@ describe("PGlite data directory lock", () => {
   test("refuses a directory another live process holds, with an actionable error", () =>
     withDir(async (dir) => {
       writeFileSync(`${dir}.lock`, String(process.ppid)); // a live process that isn't us
-      await expect(postgresAdapter({ pglite: { dataDir: dir } }).init()).rejects.toThrow(/already open in another process/);
+      await expect(pgliteAdapter({ dataDir: dir }).init()).rejects.toThrow(/already open in another process/);
       expect(readFileSync(`${dir}.lock`, "utf8")).toBe(String(process.ppid));
     }));
 
   test("takes over a stale lock, holds it while open and releases it on close", () =>
     withDir(async (dir) => {
       writeFileSync(`${dir}.lock`, "2147483646"); // no such process
-      const adapter = postgresAdapter({ pglite: { dataDir: dir } });
+      const adapter = pgliteAdapter({ dataDir: dir });
       await adapter.init();
       expect(readFileSync(`${dir}.lock`, "utf8")).toBe(String(process.pid));
       await adapter.close?.();

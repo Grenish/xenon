@@ -60,6 +60,8 @@ export default defineConfig([
       next: "src/next/index.ts",
       react: "src/react/index.ts",
       postgres: "src/adapters/postgres/index.ts",
+      pglite: "src/adapters/postgres/pglite.ts",
+      drizzle: "src/adapters/postgres/drizzle.ts",
       memory: "src/adapters/memory.ts",
       "storage/local": "src/storage/local.ts",
       "storage/s3": "src/storage/s3.ts",

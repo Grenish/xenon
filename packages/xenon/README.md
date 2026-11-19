@@ -26,7 +26,7 @@ bun add @electric-sql/pglite   # embedded Postgres (local dev, tests)
 // src/xenon.config.ts
 import { defineCollection, defineConfig, media, relation, richText, select, text, textarea } from "xenon-cms";
 import type { InferCollectionType } from "xenon-cms";
-import { postgresAdapter } from "xenon-cms/postgres";
+import { pgliteAdapter } from "xenon-cms/pglite";
 import { LocalStorageAdapter } from "xenon-cms/storage/local";
 
 const images = defineCollection({
@@ -52,9 +52,7 @@ export type Post = InferCollectionType<typeof posts>;
 
 export default defineConfig({
   collections: [posts, images],
-  db: process.env.DATABASE_URL
-    ? postgresAdapter({ connectionString: process.env.DATABASE_URL })
-    : postgresAdapter({ pglite: { dataDir: ".xenon/pgdata" } }),
+  db: pgliteAdapter({ dataDir: ".xenon/pgdata" }),
   storage: new LocalStorageAdapter({ directory: ".xenon/uploads" }),
 });
 ```
@@ -108,16 +106,33 @@ inconsistent (duplicate slugs, unknown `relationTo`, reserved field names, and s
 
 ## 2. Database and storage
 
+Choose the entry point for your database. For a PostgreSQL server, install `postgres`:
+
 ```ts
 import { postgresAdapter } from "xenon-cms/postgres";
 
-postgresAdapter({ connectionString: "postgres://…", max: 10 }); // postgres-js
-postgresAdapter({ pglite: { dataDir: ".xenon/pgdata" } });      // embedded; `pglite: true` = in-memory
-postgresAdapter({ db });                                        // bring your own Drizzle pg database
+const db = postgresAdapter({ connectionString: process.env.DATABASE_URL!, max: 10 });
+```
+
+For embedded Postgres, install `@electric-sql/pglite`:
+
+```ts
+import { pgliteAdapter } from "xenon-cms/pglite";
+
+const db = pgliteAdapter({ dataDir: ".xenon/pgdata" }); // omit options for an in-memory database
+```
+
+If your app already has a Drizzle PostgreSQL database, pass it directly. Your app owns its connection and closes it when finished.
+
+```ts
+import { drizzleAdapter } from "xenon-cms/drizzle";
+import { db } from "./db";
+
+const adapter = drizzleAdapter({ db });
 ```
 
 Tables (`xenon_documents` plus the auth tables) are created on first use; there are no migrations to
-run when you add fields. With PGlite, add it to `serverExternalPackages` (see below).
+run when you add fields.
 `memoryAdapter()` from `xenon-cms/memory` is available for tests.
 
 ```ts
@@ -139,8 +154,7 @@ new S3StorageAdapter({                                    // S3 and Cloudflare R
 > **PGlite is single-process.** Only one process may open a PGlite folder at a time; Xenon enforces
 > this with a `{dataDir}.lock` file and a clear error. `next build` prerenders in several worker
 > processes, so with PGlite build with one worker (`experimental: { cpus: 1 }` in `next.config.ts`),
-> and don't run a build while `next dev` is using the same folder. Use `DATABASE_URL` (a real
-> Postgres server) for anything multi-process.
+> and don't run a build while `next dev` is using the same folder. Use `postgresAdapter({ connectionString })` with a PostgreSQL server for multi-process deployments.
 
 ## 3. Mount the REST API
 
@@ -216,7 +230,6 @@ your app runs on several instances at once, pass a shared `presence` store, or t
 // next.config.ts
 const nextConfig = {
   cacheComponents: true,                            // for "use cache" + cacheTag (section 6)
-  serverExternalPackages: ["@electric-sql/pglite"], // only when using PGlite
 };
 ```
 
@@ -229,7 +242,7 @@ Auth is [BetterAuth](https://www.better-auth.com): email and password, no public
 | --- | --- |
 | `XENON_SECRET` | Signs sessions. **Required in production** (`openssl rand -base64 32`). `BETTER_AUTH_SECRET` also works. |
 | `XENON_URL` | Public base URL of the app, e.g. `https://example.com`. `BETTER_AUTH_URL` also works. |
-| `DATABASE_URL` | Not read by Xenon itself; use it in your config as shown above. |
+| `DATABASE_URL` | Not read by Xenon itself; pass it to `postgresAdapter` as shown above. |
 
 The same values can be set in code, along with API keys for scripts and other servers:
 
@@ -330,7 +343,7 @@ const excerpt = richTextToPlainText(post.body).slice(0, 160);
 | `xenon-cms/next` | `getXenon`, `xenonTags`, `createApiHandler`, `AdminPage`, `runAdminAction` |
 | `xenon-cms/server` | `createXenon`, `XenonError`, auth helpers (no Next.js dependency) |
 | `xenon-cms/react` | `RichText`, `richTextToPlainText` |
-| `xenon-cms/postgres`, `xenon-cms/memory` | database adapters |
+| `xenon-cms/postgres`, `xenon-cms/pglite`, `xenon-cms/drizzle`, `xenon-cms/memory` | database adapters |
 | `xenon-cms/storage/local`, `xenon-cms/storage/s3` | storage adapters |
 | `xenon-cms/styles.css` | admin styles |
 

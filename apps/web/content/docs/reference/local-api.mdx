@@ -1,0 +1,135 @@
+---
+title: Local API
+description: API reference for createXenon and local server operations exported from xenon-cms/server.
+---
+
+## Overview
+
+The Local API provides direct, programmatic access to Xenon collections within server environments.
+
+```ts
+import { createXenon } from "xenon-cms/server";
+import config from "@/xenon.config";
+
+const xenon = createXenon(config);
+await xenon.init();
+```
+
+In Next.js applications, use `getXenon(config)` from `xenon-cms/next` for automatic memoization and cache tag invalidation.
+
+## Client methods
+
+### find
+
+Queries multiple documents in a collection.
+
+```ts
+const result = await xenon.find({
+  collection: "posts",
+  where: { category: { equals: "news" } },
+  sort: "-createdAt",
+  limit: 10,
+  page: 1,
+  draft: false,
+  overrideAccess: true,
+});
+```
+
+Returns `{ docs, totalDocs, limit, page, totalPages, hasNextPage, hasPrevPage }`.
+
+### findById
+
+Fetches a single document by UUID.
+
+```ts
+const doc = await xenon.findById({
+  collection: "posts",
+  id: "01934c90-9c44-7000-8432-123456789abc",
+  draft: false,
+});
+```
+
+Returns the document object if found, or `null`.
+
+### findBySlug
+
+Fetches a single document by slug string.
+
+```ts
+const doc = await xenon.findBySlug({
+  collection: "posts",
+  slug: "welcome-to-xenon",
+  draft: false,
+});
+```
+
+Returns the document object if found, or `null`.
+
+### create
+
+Creates a new document in the collection.
+
+```ts
+const newDoc = await xenon.create({
+  collection: "posts",
+  data: {
+    title: "New Post",
+    content: "Body content",
+  },
+  draft: false,
+});
+```
+
+For upload collections, include the `file` object: `{ data: Uint8Array | Blob, name: string, type: string }`.
+
+### update
+
+Updates an existing document.
+
+```ts
+const updated = await xenon.update({
+  collection: "posts",
+  id: "01934c90-9c44-7000-8432-123456789abc",
+  data: { title: "Updated Title" },
+  expectedUpdatedAt: "2026-11-19T10:00:00.000Z", // optional concurrency check
+});
+```
+
+Throws `XenonError` with code `CONFLICT` if `expectedUpdatedAt` does not match the current document timestamp.
+
+### unpublish
+
+Transitions a published document back to draft status.
+
+```ts
+const draft = await xenon.unpublish({
+  collection: "posts",
+  id: "01934c90-9c44-7000-8432-123456789abc",
+});
+```
+
+### delete
+
+Deletes a document from the database and removes any associated file from storage.
+
+```ts
+const removed = await xenon.delete({
+  collection: "posts",
+  id: "01934c90-9c44-7000-8432-123456789abc",
+});
+```
+
+## Access control parameter
+
+All Local API methods accept an optional `overrideAccess` boolean parameter.
+
+In the Local API, `overrideAccess` defaults to `true` (server code is trusted). Setting `overrideAccess: false` enforces collection access functions against the provided `user` object.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/reference/next" title="xenon-cms/next" />
+  <Card href="/docs/reference/rest" title="REST endpoints" />
+
+</Cards>

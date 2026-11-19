@@ -1,0 +1,104 @@
+---
+title: Uploads and media
+description: Configure upload collections, validate file types, and manage image assets in Xenon.
+---
+
+## Upload collections
+
+You can manage images, PDFs, and binary attachments by creating upload collections.
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, text } from "xenon-cms";
+import { LocalStorageAdapter } from "xenon-cms/storage/local";
+
+export const media = defineCollection({
+  slug: "media",
+  upload: {
+    mimeTypes: ["image/jpeg", "image/png", "image/webp", "image/gif"],
+    maxFileSize: 10 * 1024 * 1024, // 10MB
+  },
+  fields: {
+    alt: text({ required: true }),
+    caption: text(),
+  },
+});
+```
+
+Setting `upload: true` (or providing an upload configuration object) transforms the collection into an asset manager.
+
+## System metadata fields
+
+When `upload` is enabled, Xenon manages binary metadata automatically. The following attributes are populated on document creation:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `filename` | `string` | Safe sanitized filename of the stored asset. |
+| `mimeType` | `string` | Detected MIME content type. |
+| `filesize` | `number` | Size of the asset in bytes. |
+| `url` | `string` | Publicly accessible URL served by the active storage adapter. |
+| `width` | `number \| null` | Pixel width (populated automatically for image files). |
+| `height` | `number \| null` | Pixel height (populated automatically for image files). |
+
+Do not declare these keys in your `fields` configuration; Xenon injects and maintains them automatically.
+
+## Linking media in other collections
+
+Reference upload assets from articles or products using the `media()` field helper:
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, media, text } from "xenon-cms";
+
+export const articles = defineCollection({
+  slug: "articles",
+  fields: {
+    title: text({ required: true }),
+    heroImage: media({ relationTo: "media", required: true }),
+    gallery: media({ relationTo: "media", hasMany: true }),
+  },
+});
+```
+
+The `relationTo` option must name a collection that has `upload` enabled.
+
+## Rendering images
+
+In your Server Components, query the media document to render responsive Next.js images:
+
+```tsx title="src/app/articles/[slug]/page.tsx"
+import Image from "next/image";
+import { getXenon } from "xenon-cms/next";
+import config, { type Media } from "@/xenon.config";
+
+export default async function ArticleHero({ mediaId }: { mediaId: string }) {
+  const asset = (await getXenon(config).findById({
+    collection: "media",
+    id: mediaId,
+  })) as Media | null;
+
+  if (!asset) return null;
+
+  return (
+    <Image
+      src={asset.url}
+      alt={asset.alt}
+      width={asset.width ?? 800}
+      height={asset.height ?? 600}
+    />
+  );
+}
+```
+
+<Callout>
+
+Upload collections do not support draft stages. Newly uploaded files publish immediately to ensure URLs and storage keys remain permanent.
+
+</Callout>
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/guides/storage-s3" title="S3-compatible storage" />
+  <Card href="/docs/guides/postgres" title="Postgres" />
+
+</Cards>

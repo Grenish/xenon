@@ -1,0 +1,82 @@
+---
+title: Using the REST API
+description: Access, create, and manage content from external applications and mobile clients using the Xenon REST API.
+---
+
+## API endpoints
+
+You can interact with Xenon collections from mobile apps, external frontends, and automated scripts via REST endpoints.
+
+```bash
+curl -H "Authorization: Bearer my-api-key" \
+  https://example.com/api/xenon/posts?limit=5&sort=-createdAt
+```
+
+All REST endpoints are mounted by your `app/api/xenon/[...slug]/route.ts` catch-all handler.
+
+## Available routes
+
+The REST API exposes the following endpoints for each declared collection:
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/xenon/:collection` | List collection documents with filtering, sorting, and pagination. |
+| `GET` | `/api/xenon/:collection/:id` | Retrieve a single document by UUID. |
+| `POST` | `/api/xenon/:collection` | Create a new document (JSON or multipart form-data for uploads). |
+| `PATCH` | `/api/xenon/:collection/:id` | Update an existing document. |
+| `DELETE` | `/api/xenon/:collection/:id` | Delete a document and its stored media asset. |
+| `POST` | `/api/xenon/:collection/:id/unpublish` | Unpublish a document and return it to draft status. |
+
+## Query parameters for GET
+
+Filter and paginate results using URL query parameters:
+
+```bash
+# Query with filter and pagination
+curl "https://example.com/api/xenon/posts?where[category][equals]=news&page=1&limit=10"
+```
+
+- `where[field][operator]=value`: Filter documents by field value.
+- `sort`: Sort key (e.g., `-createdAt` for descending, `title` for ascending).
+- `page`: Page number (default: `1`).
+- `limit`: Number of documents per page (default: `10`, max: `100`).
+- `draft=true`: Include unpublished drafts (requires authenticated editor or admin access).
+
+## Creating documents
+
+Send a JSON payload with the document attributes:
+
+```bash
+curl -X POST https://example.com/api/xenon/posts \
+  -H "Authorization: Bearer my-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Announcing the REST API",
+    "excerpt": "Full programmatic access to your content."
+  }'
+```
+
+To create as an unpublished draft, append `?draft=true` to the request URL.
+
+## Optimistic concurrency on updates
+
+Prevent conflicting concurrent updates by passing the expected `updatedAt` timestamp in the `If-Match` header:
+
+```bash
+curl -X PATCH https://example.com/api/xenon/posts/01934c90-9c44-7000-8432-123456789abc \
+  -H "Authorization: Bearer my-api-key" \
+  -H "If-Match: \"2026-11-19T10:00:00.000Z\"" \
+  -H "Content-Type: application/json" \
+  -d '{ "title": "Updated Title" }'
+```
+
+If the document has been modified since that timestamp, Xenon responds with HTTP `409 Conflict`.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/guides/deploying" title="Deploying" />
+  <Card href="/docs/reference/rest" title="REST endpoints" />
+
+</Cards>

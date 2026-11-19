@@ -21,7 +21,7 @@ Common options (all fields):
 | `label`        | `string`                               | admin label, defaults to humanized key |
 | `required`     | `boolean`                              | literal-typed; drives inference |
 | `defaultValue` | value type of the field                | presence drives inference |
-| `admin`        | `{ description?: string; hidden?: boolean; readOnly?: boolean; position?: "main" \| "sidebar" }` | UI hints |
+| `admin`        | `{ description?: string; hidden?: boolean; readOnly?: boolean; position?: "main" \| "sidebar"; placeholder?: string }` | UI hints |
 | `validate`     | `(value, ctx: { data: Record<string, unknown> }) => true \| string` | custom rule; string = error message |
 
 Per field:
@@ -51,7 +51,7 @@ const posts = defineCollection({
   slugFrom: "title",                   // optional; must be a text field key → fills document.slug
   drafts: true,                        // optional (default true): draft/publish workflow
   upload: false,                       // optional; true or { mimeTypes?: string[]; maxFileSize?: number }
-  admin: { useAsTitle: "title", defaultColumns: ["title", "status"], group?: string },
+  admin: { useAsTitle: "title", defaultColumns: ["title", "status"], group?: string, description?: string },
   access: { read?, create?, update?, delete? },         // (args: { user: XenonUser | null }) => boolean | Promise<boolean>
 });
 ```
@@ -160,11 +160,36 @@ conformance suite `packages/xenon/test/adapters/conformance.ts`.
   **last** in both directions; mixed types unspecified. Ties always broken by `id` ascending (stable pagination).
 - **Pagination**: `limit` default 10 (`0` = all), `page` default 1. `totalPages = limit === 0 ? 1 : max(1, ceil(totalDocs / limit))`.
   `hasNextPage = page < totalPages`, `hasPrevPage = page > 1`. Out-of-range page → empty `docs`, correct totals.
-- **PGlite data directory lock**: a file-backed `pglite.dataDir` is guarded by `{dataDir}.lock` (owner pid). A second
+- **PGlite data directory lock**: a file-backed `pgliteAdapter({ dataDir })` is guarded by `{dataDir}.lock` (owner pid). A second
   live process gets an error instead of opening it (PGlite is single-process; concurrent use corrupts its WAL); a lock
   whose pid is dead is taken over; `close()` / process exit releases it.
 - **getAuthDatabase(authOptions)**: ensures BetterAuth tables (from `getSchema(authOptions)` of `better-auth/db`) exist and
   returns a BetterAuth `database` value. Postgres uses BetterAuth's drizzle adapter; memory uses `better-auth/adapters/memory`.
+
+### 2.4 Postgres adapter entry points (2026-11-19, user decision; replaces the single `xenon-cms/postgres` options union)
+
+Each driver gets its own entry point, and that module imports only its own driver, without bundler-ignore hints.
+A consumer installs only the driver it uses: no extra Next config, no direct `drizzle-orm` install, and it works with
+npm, pnpm and `output: "standalone"`/serverless file tracing.
+
+| Entry | Export | Options | Needs installed |
+|---|---|---|---|
+| `xenon-cms/postgres` | `postgresAdapter` | `{ connectionString: string; max?: number }` | `postgres` |
+| `xenon-cms/pglite` | `pgliteAdapter` | `{ dataDir?: string }` (omitted = in-memory) | `@electric-sql/pglite` |
+| `xenon-cms/drizzle` | `drizzleAdapter` | `{ db: PgDatabase }` (any Drizzle pg database: node-postgres, Neon, …) | neither driver |
+
+- All three return the same `DatabaseAdapter` and share one internal implementation (where, schema, auth DDL), so they all
+  pass the conformance suite. `xenonDocuments` stays exported from `xenon-cms/postgres`.
+- Both drivers stay optional peers. Importing an entry whose driver isn't installed is a build error naming the driver.
+- **PGlite needs one Next.js setting.** `pgliteAdapter` consumers add `serverExternalPackages: ["@electric-sql/pglite"]`
+  to `next.config`. Verified with `output: "standalone"` on npm and pnpm (Next 16.4.6, PGlite 0.5.16); no
+  `outputFileTracingIncludes` is needed. Without it, Turbopack rewrites PGlite's asset URLs and the database-backed
+  prerender fails. `postgresAdapter` and `drizzleAdapter` stay zero-config.
+- **PGlite with several statically prerendered DB pages also needs `experimental: { cpus: 1 }`.** Next.js builds with several
+  workers, and each worker that opens the same file-backed `dataDir` hits the lock. Verified on a 12-CPU host: with 50
+  DB-backed static paths, the default worker count failed with "already open in another process"; `cpus: 1` passed 3/3.
+  A single DB-backed page passed either way. Use `cpus: 1` whenever PGlite is read during prerender.
+- Since nothing is published yet, the old `postgresAdapter({ pglite })` and `postgresAdapter({ db })` forms are removed, not deprecated.
 
 ### 2.3 PresenceStore (admin presence + soft locks, 2026-11-18)
 
@@ -219,8 +244,9 @@ xenon.auth                              // the BetterAuth instance (null when no
 - **Access**: `overrideAccess` defaults to `true` in the Local API (server code is trusted). When `false`, collection
   `access.*` functions decide; defaults: `read` = anyone for published reads, a logged-in user for `draft: true`;
   `create/update/delete` = any logged-in user (`admin` or `editor`).
-- **Errors**: `XenonError` with `code` `NOT_FOUND | VALIDATION | FORBIDDEN | UNAUTHORIZED | CONFLICT | BAD_REQUEST`,
-  `status` (HTTP), and `issues?: ValidationIssue[]`.
+- **Errors**: `XenonError` with `code` `NOT_FOUND | VALIDATION | FORBIDDEN | UNAUTHORIZED | CONFLICT | BAD_REQUEST |
+  PAYLOAD_TOO_LARGE | UNSUPPORTED_MEDIA_TYPE`, `status` (HTTP: 404, 400, 403, 401, 409, 400, 413, 415), and
+  `issues?: ValidationIssue[]`.
 
 ## 4. `xenon-cms/next` (Phase 2)
 

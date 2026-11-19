@@ -1,0 +1,60 @@
+---
+title: defineConfig
+description: API reference for the defineConfig function, global configuration options, and configuration validation errors.
+---
+
+## Overview
+
+The `defineConfig` function creates the root configuration object for Xenon.
+
+```ts title="src/xenon.config.ts"
+import { defineConfig } from "xenon-cms";
+import { postgresAdapter } from "xenon-cms/postgres";
+import { LocalStorageAdapter } from "xenon-cms/storage/local";
+import { posts, media } from "./collections";
+
+export default defineConfig({
+  collections: [posts, media],
+  db: postgresAdapter({ connectionString: process.env.DATABASE_URL! }),
+  storage: new LocalStorageAdapter({ directory: ".xenon/uploads" }),
+  admin: { path: "/admin" },
+  api: { path: "/api/xenon" },
+});
+```
+
+The configuration ties together collections, database adapters, storage providers, and authentication settings.
+
+## Configuration options
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `collections` | `readonly Collection[]` | Required | Tuple array of declared collection schemas. |
+| `db` | `DatabaseAdapter` | `undefined` | Database adapter: `postgresAdapter`, `pgliteAdapter` or `drizzleAdapter`. |
+| `storage` | `StorageAdapter` | `undefined` | Storage adapter instance (`LocalStorageAdapter` or `S3StorageAdapter`). |
+| `auth` | `XenonAuthConfig` | `{}` | Authentication options including secret and static API keys. |
+| `admin` | `{ path?: string }` | `{ path: "/admin" }` | Base path where the admin UI is mounted. |
+| `api` | `{ path?: string }` | `{ path: "/api/xenon" }` | Base path where REST and auth endpoints are mounted. |
+| `presence` | `PresenceStore \| false` | `memoryPresence()` | Presence store for document soft locks. Set to `false` to disable. |
+
+## Configuration validation
+
+At startup, `defineConfig` validates your schema definitions and throws `XenonConfigError` if any of the following constraints are violated:
+
+- Duplicate collection slugs or invalid slug naming.
+- Use of reserved field keys: `id`, `slug`, `status`, `createdAt`, `updatedAt`, or names starting with `_`.
+- A `relation` or `media` field referencing an unknown collection slug.
+- A `media` field pointing to a collection where `upload` is not enabled.
+- A `slugFrom` property targeting a non-existent or non-text field.
+- A `select` field with empty options or duplicate values.
+- A collection declaring field keys that collide with system upload attributes (`filename`, `mimeType`, `filesize`, `url`, `width`, `height`).
+
+The resulting error message details the exact collection name and field path where the error occurred.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/reference/local-api" title="Local API" />
+  <Card href="/docs/reference/next" title="xenon-cms/next" />
+
+</Cards>

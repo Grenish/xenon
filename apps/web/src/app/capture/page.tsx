@@ -7,7 +7,7 @@ export const metadata = { title: "Capture", robots: { index: false } };
 export default async function Capture({ searchParams }: { searchParams: Promise<{ demo?: string }> }) {
   const { demo } = await searchParams;
   return (
-    <div id="capture" className={demo === "types" ? "capture capture--types" : "capture capture--hero"}>
+    <div id="capture" className="py-6">
       <CaptureDemo demo={demo === "types" ? "types" : "hero"} />
     </div>
   );

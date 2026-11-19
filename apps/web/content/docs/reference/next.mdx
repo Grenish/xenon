@@ -1,0 +1,99 @@
+---
+title: xenon-cms/next
+description: API reference for Next.js App Router helpers, route handlers, and admin components in xenon-cms/next.
+---
+
+## Overview
+
+The `xenon-cms/next` module provides integrations for the Next.js App Router.
+
+```ts
+import {
+  AdminPage,
+  createApiHandler,
+  getXenon,
+  runAdminAction,
+  xenonTags,
+} from "xenon-cms/next";
+```
+
+All functions and components exported from this module are server-only.
+
+## Exported utilities
+
+### getXenon
+
+Returns a cached, memoized instance of the Local API wired to Next.js cache revalidation triggers.
+
+```ts
+const xenon = getXenon(config);
+const { docs } = await xenon.find({ collection: "posts" });
+```
+
+When documents are saved or published, `getXenon` automatically calls `revalidateTag` for `xenon`, `xenon:{collection}`, and `xenon:{collection}:{id}`.
+
+### xenonTags
+
+Generates standardized cache tag strings for use with Next.js `cacheTag()`.
+
+```ts
+import { cacheTag } from "next/cache";
+import { xenonTags } from "xenon-cms/next";
+
+cacheTag(xenonTags.all);                       // "xenon"
+cacheTag(xenonTags.collection("posts"));       // "xenon:posts"
+cacheTag(xenonTags.doc("posts", id));          // "xenon:posts:<id>"
+```
+
+### createApiHandler
+
+Generates Next.js Route Handlers for the REST and authentication API.
+
+```ts title="src/app/api/xenon/[...slug]/route.ts"
+import config from "@/xenon.config";
+import { createApiHandler } from "xenon-cms/next";
+
+export const { GET, POST, PATCH, DELETE } = createApiHandler(config);
+```
+
+Exports HTTP handler functions matching the App Router route convention.
+
+### AdminPage
+
+A React Server Component rendering the complete admin UI.
+
+```tsx title="src/app/admin/[[...segments]]/page.tsx"
+import "xenon-cms/styles.css";
+import config from "@/xenon.config";
+import { AdminPage, runAdminAction, type AdminActionInput } from "xenon-cms/next";
+
+async function action(input: AdminActionInput) {
+  "use server";
+  return runAdminAction(config, input);
+}
+
+export default function Page(props: any) {
+  return <AdminPage config={config} action={action} {...props} />;
+}
+```
+
+The component automatically handles login screens, collection dashboards, edit forms, and user settings.
+
+### runAdminAction
+
+Executes mutations requested by the admin client within a Server Action.
+
+```ts
+const result = await runAdminAction(config, input);
+```
+
+Re-authenticates the user session before executing any admin action.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/reference/rest" title="REST endpoints" />
+  <Card href="/docs/reference/adapters" title="Database and storage adapters" />
+
+</Cards>

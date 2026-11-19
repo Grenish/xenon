@@ -3,6 +3,8 @@ import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { postgresAdapter } from "../../src/adapters/postgres";
+import { drizzleAdapter } from "../../src/adapters/postgres/drizzle";
+import { pgliteAdapter } from "../../src/adapters/postgres/pglite";
 import { runDatabaseAdapterConformance } from "./conformance";
 
 /*
@@ -17,9 +19,11 @@ async function reset(run: (q: ReturnType<typeof sql.raw>) => Promise<unknown>) {
   await run(sql.raw(`DROP TABLE IF EXISTS "xenon_documents", "xenon_sessions", "xenon_accounts", "xenon_verifications", "xenon_users" CASCADE`));
 }
 
-runDatabaseAdapterConformance("postgres (PGlite)", async () => {
+runDatabaseAdapterConformance("pglite", async () => pgliteAdapter());
+
+runDatabaseAdapterConformance("drizzle (supplied PGlite database)", async () => {
   await reset((q) => db.execute(q));
-  return postgresAdapter({ db });
+  return drizzleAdapter({ db });
 });
 
 const url = process.env.XENON_TEST_DATABASE_URL;

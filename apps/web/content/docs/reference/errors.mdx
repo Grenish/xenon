@@ -1,0 +1,84 @@
+---
+title: Errors
+description: Error codes, exception classes, and validation failure payloads produced by Xenon.
+---
+
+## Error handling
+
+Xenon throws typed error classes when requests fail validation, authentication, or concurrency checks.
+
+```ts
+import { XenonError, XenonConfigError } from "xenon-cms";
+
+try {
+  await xenon.create({
+    collection: "posts",
+    data: { title: "" },
+  });
+} catch (error) {
+  if (error instanceof XenonError) {
+    console.error(error.code);   // e.g. "VALIDATION"
+    console.error(error.status); // e.g. 400
+    console.error(error.issues); // [{ path: ["title"], message: "This field is required" }]
+  }
+}
+```
+
+The `XenonError` instance includes an HTTP `status` code and an array of `issues` indicating which field paths failed.
+
+## Error classes
+
+### XenonError
+
+Base runtime exception thrown during Local API and REST operations.
+
+| Property | Type | Description |
+| --- | --- | --- |
+| `code` | `XenonErrorCode` | Standard error code identifier. |
+| `status` | `number` | Corresponding HTTP status code. |
+| `message` | `string` | Human-readable explanation. |
+| `issues` | `ValidationIssue[] \| undefined` | Detailed path-specific error list for validation failures. |
+
+### XenonConfigError
+
+Thrown synchronously at application boot when `defineConfig` or `defineCollection` detects invalid configurations.
+
+- Duplicate collection slugs.
+- Reserved field keys (`id`, `slug`, `status`, `createdAt`, `updatedAt`, or names starting with `_`).
+- Invalid relationship targets.
+- Invalid slug source fields.
+
+## Error codes
+
+| Code | HTTP status | Description |
+| --- | --- | --- |
+| `NOT_FOUND` | `404` | The requested collection document or file asset does not exist. |
+| `VALIDATION` | `400` | Document data failed schema validation checks or custom field rules. |
+| `FORBIDDEN` | `403` | Authenticated user lacks permission to perform the requested operation. |
+| `UNAUTHORIZED` | `401` | Missing or invalid authentication credentials. |
+| `CONFLICT` | `409` | Concurrent edit collision detected (`If-Match` timestamp mismatch). |
+| `BAD_REQUEST` | `400` | Malformed request body, invalid query parameters, or unsupported operation. |
+| `PAYLOAD_TOO_LARGE` | `413` | An uploaded file is larger than the collection's `upload.maxFileSize`. |
+| `UNSUPPORTED_MEDIA_TYPE` | `415` | An uploaded file's type isn't in `upload.mimeTypes`, or a request body isn't JSON or multipart form data. |
+
+## Validation issue shape
+
+When `error.code === "VALIDATION"`, the `issues` property provides an array of specific field failures:
+
+```ts
+export type ValidationIssue = {
+  path: (string | number)[];
+  message: string;
+};
+```
+
+Common messages include `"This field is required"` and custom error messages returned from field `validate` functions.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/start/quickstart" title="Quickstart" />
+  <Card href="/docs/reference/local-api" title="Local API" />
+
+</Cards>

@@ -1,0 +1,73 @@
+---
+title: Type inference
+description: Generate TypeScript types directly from collection definitions without code generation steps.
+---
+
+## Automatic typing
+
+You can derive TypeScript types directly from collection schemas without running code generators.
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, text, textarea, number } from "xenon-cms";
+import type {
+  InferCollectionType,
+  InferCollectionData,
+  InferCreateInput,
+} from "xenon-cms";
+
+export const posts = defineCollection({
+  slug: "posts",
+  fields: {
+    title: text({ required: true }),
+    excerpt: textarea(),
+    views: number({ defaultValue: 0 }),
+  },
+});
+
+// Full document including system attributes
+export type Post = InferCollectionType<typeof posts>;
+
+// Declared field values only
+export type PostData = InferCollectionData<typeof posts>;
+
+// Input accepted for creating new documents
+export type CreatePostInput = InferCreateInput<typeof posts>;
+```
+
+Xenon field helpers use `const` generic parameters to infer literal types and required constraints automatically.
+
+## Type utilities
+
+Xenon exports several helper types:
+
+| Type | Target | Description |
+| --- | --- | --- |
+| `InferCollectionType<C>` | Collection | Full document representation: declared fields plus system keys (`id`, `slug`, `status`, `createdAt`, `updatedAt`). |
+| `InferCollectionData<C>` | Collection | Declared fields and upload metadata only, excluding system keys. |
+| `InferCreateInput<C>` | Collection | Shape required when creating a document via `xenon.create`. |
+| `InferUpdateInput<C>` | Collection | Shape accepted when updating a document (`Partial<InferCreateInput<C>>`). |
+| `InferDraftInput<C>` | Collection | Relaxed shape for draft saves where required fields may be omitted or null. |
+| `CollectionSlug<Config>` | Config | Union of collection slug strings defined in the config. |
+| `InferConfigDocuments<Config>` | Config | Object map of all collections keyed by slug to their `InferCollectionType`. |
+
+## Field inference rules
+
+Xenon computes read and write types based on the `required` and `defaultValue` configuration of each field:
+
+| Field declaration | Read type (`InferCollectionData`) | Create input (`InferCreateInput`) |
+| --- | --- | --- |
+| `required: true`, no default | `key: V` | `key: V` (required) |
+| `required: true`, with default | `key: V` | `key?: V` (optional) |
+| not required, with default | `key: V` | `key?: V \| null` (optional) |
+| not required, no default | `key?: V \| null` | `key?: V \| null` (optional) |
+
+Fields with a `defaultValue` guarantee a value on read (`key: V`), because Xenon replaces null or undefined values with the default during normalization.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/admin/setup" title="Mounting the admin" />
+  <Card href="/docs/guides/querying" title="Querying content" />
+
+</Cards>

@@ -1,0 +1,152 @@
+---
+title: Database and storage adapters
+description: Reference documentation for database engines and object storage adapters supported by Xenon.
+---
+
+## Overview
+
+Xenon decouples document persistence and asset storage using pluggable adapter interfaces.
+
+```ts title="src/xenon.config.ts"
+import { defineConfig } from "xenon-cms";
+import { postgresAdapter } from "xenon-cms/postgres";
+import { LocalStorageAdapter } from "xenon-cms/storage/local";
+
+export default defineConfig({
+  collections: [],
+  db: postgresAdapter({ connectionString: process.env.DATABASE_URL! }),
+  storage: new LocalStorageAdapter({ directory: ".xenon/uploads" }),
+});
+```
+
+Adapters are instantiated in `xenon.config.ts` and passed to `defineConfig`.
+
+## Database adapters
+
+Three adapters, one per driver. Each has its own import, and that import loads only its own driver, so install just the one you use. All three store documents the same way.
+
+### postgresAdapter
+
+Exported from `xenon-cms/postgres`. Connects to a Postgres server with the `postgres` driver.
+
+```ts
+import { postgresAdapter } from "xenon-cms/postgres";
+
+const db = postgresAdapter({
+  connectionString: process.env.DATABASE_URL!,
+});
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `connectionString` | `string` | Required | Postgres connection URI. |
+| `max` | `number` | `10` | Maximum connections in the pool. |
+
+Install `postgres`. `xenonDocuments`, the documents table definition, is also exported from `xenon-cms/postgres`.
+
+### pgliteAdapter
+
+Exported from `xenon-cms/pglite`. Runs Postgres inside your server process with PGlite.
+
+```ts
+import { pgliteAdapter } from "xenon-cms/pglite";
+
+const db = pgliteAdapter({ dataDir: ".xenon/pgdata" });
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `dataDir` | `string` | In memory | Directory for the database files. Omit it for an in-memory database that's lost on restart. |
+
+Install `@electric-sql/pglite`, then add it to `serverExternalPackages` and set `experimental.cpus` to `1` in `next.config.ts`:
+
+```ts title="next.config.ts"
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  serverExternalPackages: ["@electric-sql/pglite"],
+  experimental: { cpus: 1 },
+};
+
+export default nextConfig;
+```
+
+`cpus: 1` makes `next build` use a single worker. Only one process can open a PGlite database at a time, so when several static pages read it while they prerender, the default worker count fails with an "already open in another process" error. A site with a single page that reads PGlite builds either way.
+
+### drizzleAdapter
+
+Exported from `xenon-cms/drizzle`. Uses a Drizzle Postgres database you create, for example with node-postgres or Neon's driver.
+
+```ts
+import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzleAdapter } from "xenon-cms/drizzle";
+
+const db = drizzleAdapter({ db: drizzle(process.env.DATABASE_URL!) });
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `db` | `PgDatabase` | Required | Any Drizzle Postgres database. |
+
+Neither driver is needed; install the packages your Drizzle setup uses.
+
+Each adapter creates the tables it needs the first time it connects.
+
+## Storage adapters
+
+### LocalStorageAdapter
+
+Exported from `xenon-cms/storage/local`. Persists binary assets to a directory on the local filesystem.
+
+```ts
+import { LocalStorageAdapter } from "xenon-cms/storage/local";
+
+const storage = new LocalStorageAdapter({
+  directory: ".xenon/uploads",
+  baseUrl: "/api/xenon/_files",
+});
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `directory` | `string` | `".xenon/uploads"` | Destination folder for uploaded files. |
+| `baseUrl` | `string` | `"/api/xenon/_files"` | HTTP base URL path for file retrieval. |
+
+Rejects directory traversal sequences and unsafe keys.
+
+### S3StorageAdapter
+
+Exported from `xenon-cms/storage/s3`. Uploads assets to Amazon S3, Cloudflare R2, or compatible object stores.
+
+```ts
+import { S3StorageAdapter } from "xenon-cms/storage/s3";
+
+const storage = new S3StorageAdapter({
+  bucket: "my-bucket",
+  endpoint: "https://<account>.r2.cloudflarestorage.com",
+  region: "auto",
+  accessKeyId: process.env.S3_KEY!,
+  secretAccessKey: process.env.S3_SECRET!,
+  publicUrl: "https://media.example.com",
+  prefix: "uploads",
+});
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `bucket` | `string` | Required | Object store bucket name. |
+| `endpoint` | `string` | Required | S3 API endpoint URL. |
+| `region` | `string` | `"auto"` | AWS region. |
+| `accessKeyId` | `string` | Required | Access key ID. |
+| `secretAccessKey` | `string` | Required | Secret access key. |
+| `publicUrl` | `string` | Required | Base URL where files are served. |
+| `prefix` | `string` | `undefined` | Subfolder path prepended to all storage keys. |
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/reference/errors" title="Errors" />
+  <Card href="/docs/reference/local-api" title="Local API" />
+
+</Cards>

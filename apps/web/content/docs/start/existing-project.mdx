@@ -1,0 +1,54 @@
+---
+title: Add Xenon to an existing project
+description: Add an admin and a content API to an existing Next.js app, connect Postgres, and verify a published post alongside your current pages.
+---
+
+## Choose where to mount Xenon
+
+Open the workspace containing your Next.js app’s `package.json`. Xenon’s Next integration uses the App Router with Next.js 16+ and React and React DOM 19+. Use your app’s existing `src/app/` or `app/` directory for the two new routes.
+
+The examples mount the admin at `/admin` and the API at `/api/xenon`. If your app already serves `/admin`, use a free path such as `/studio`: put the admin page in `app/studio/[[...segments]]/page.tsx` and set `admin: { path: "/studio" }` in `defineConfig`. The same rule applies to the REST handler and its `api.path` setting.
+
+## Install the package and connect Postgres
+
+Follow the [core package installation](/docs/start/installation#core-package) in the app workspace. This example connects to a running Postgres database, so install the `postgres` driver. It needs no Next.js configuration.
+
+<Install pkg="postgres" />
+
+If your app already uses Drizzle with Postgres, you can pass that database to [`drizzleAdapter`](/docs/reference/adapters#drizzleadapter) instead and skip the driver.
+
+Set `DATABASE_URL` in the app’s `.env.local` to the connection string for the database you want Xenon to use. Its database user needs permission to create the Xenon document and auth tables on first use. Set `XENON_SECRET` to a generated secret (for example, the output of `openssl rand -base64 32`). Set those values in your deployment environment as well. For a local setup without a database server, use [PGlite](/docs/guides/postgres#embedded-pglite-for-local-development) instead. It needs `@electric-sql/pglite` and two Next.js settings.
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, defineConfig, text } from "xenon-cms";
+import { postgresAdapter } from "xenon-cms/postgres";
+
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("Set DATABASE_URL in the app environment");
+
+const posts = defineCollection({
+  slug: "posts",
+  admin: { useAsTitle: "title" },
+  fields: { title: text({ required: true }) },
+});
+
+export default defineConfig({
+  collections: [posts],
+  db: postgresAdapter({ connectionString }),
+});
+```
+
+## Add the API and admin files
+
+Copy these two handlers into your app. Their `@/xenon.config` import should resolve to the file above. If your app uses a root-level `app/`, put `xenon.config.ts` at the project root and use your existing alias or a relative import.
+
+| File under your App Router directory | Implementation |
+| --- | --- |
+| `api/xenon/[...slug]/route.ts` | [REST handler with GET, POST, PATCH and DELETE](/docs/start/quickstart#mount-the-api-route) |
+| `admin/[[...segments]]/page.tsx` | [Admin page with its stylesheet and Server Action](/docs/start/quickstart#mount-the-admin-interface) |
+
+## Verify the integration
+
+Restart the app with its usual dev command. Open the admin path, create the first administrator if prompted, and publish a post with a recognizable title. Visit `/api/xenon/posts` (or your chosen API path followed by `/posts`). The title should appear in the `docs` array. An empty array is expected while the post is still a draft.
+
+Your existing home page can keep serving its current content. When you want to display posts, use the [Server Component query](/docs/guides/querying) on the page that needs them.

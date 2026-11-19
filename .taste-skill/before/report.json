@@ -1,0 +1,2156 @@
+{
+ "url": "http://localhost:3100/",
+ "at": "2026-11-18T19:11:56.409Z",
+ "allow": [],
+ "viewports": [
+  {
+   "width": 1440,
+   "height": 900,
+   "load": "load",
+   "screens": 10,
+   "filled": [
+    0.85,
+    0.22,
+    0.44,
+    0.54,
+    0.49,
+    0.67,
+    0.33,
+    0.41,
+    0.96,
+    0.89
+   ],
+   "motion": {
+    "elements": 34,
+    "css": 4,
+    "transitions": 27,
+    "scripted": 3,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "page": {
+     "height": 8247,
+     "screens": 9.2,
+     "words": 862,
+     "img": 6,
+     "video": 0,
+     "canvas": 0,
+     "svg": 40,
+     "sections": 7,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 14,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 5,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "The CMS inside your Next.js app",
+     "words": 6,
+     "chars": 31,
+     "lines": 2,
+     "size": 80.6,
+     "vw": 5.6,
+     "font": "IBM Plex Sans",
+     "weight": 600,
+     "tracking": -0.035,
+     "leading": 1,
+     "upper": false,
+     "italic": false,
+     "mono": false,
+     "align": "left",
+     "position": "left",
+     "widthRatio": 0.53,
+     "top": 203,
+     "tag": "h1",
+     "kind": "heading"
+    },
+    "h1": {
+     "text": "The CMS inside your Next.js app",
+     "words": 6,
+     "lines": 2,
+     "size": 80.6,
+     "font": "IBM Plex Sans"
+    },
+    "headings": [
+     {
+      "text": "The CMS inside your Next.js app",
+      "words": 6,
+      "chars": 31,
+      "lines": 2,
+      "size": 80.6,
+      "vw": 5.6,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.035,
+      "leading": 1,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.53,
+      "top": 203,
+      "tag": "h1",
+      "kind": "heading"
+     },
+     {
+      "text": "Name a collection. Get its admin.",
+      "words": 6,
+      "chars": 33,
+      "lines": 2,
+      "size": 47.5,
+      "vw": 3.3,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.36,
+      "top": 1093,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Built for the people who write",
+      "words": 6,
+      "chars": 30,
+      "lines": 2,
+      "size": 47.5,
+      "vw": 3.3,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "right",
+      "widthRatio": 0.36,
+      "top": 2123,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Types that follow your schema",
+      "words": 5,
+      "chars": 29,
+      "lines": 2,
+      "size": 47.5,
+      "vw": 3.3,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.36,
+      "top": 5310,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Runs on what you already own",
+      "words": 6,
+      "chars": 28,
+      "lines": 2,
+      "size": 47.5,
+      "vw": 3.3,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.36,
+      "top": 5957,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Add it to your app",
+      "words": 5,
+      "chars": 18,
+      "lines": 2,
+      "size": 80.6,
+      "vw": 5.6,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.035,
+      "leading": 0.96,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.3,
+      "top": 7303,
+      "tag": "h2",
+      "kind": "heading"
+     }
+    ],
+    "headingSummary": {
+     "count": 6,
+     "maxLines": 2,
+     "over2Lines": 0,
+     "statements": 0,
+     "centered": 0,
+     "medianWords": 6,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "IBM Plex Sans",
+       "share": 0.78,
+       "mono": false
+      },
+      {
+       "family": "ui-monospace",
+       "share": 0.22,
+       "mono": true
+      }
+     ],
+     "familyCount": 2,
+     "sizes": [
+      14,
+      17,
+      25,
+      48,
+      81
+     ],
+     "sizeCount": 5,
+     "notLoaded": [],
+     "body": {
+      "font": "IBM Plex Sans",
+      "size": 17,
+      "leading": 1.55,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 16.6
+     },
+     "measureChars": 65,
+     "max": {
+      "size": 80.6,
+      "vw": 5.6,
+      "font": "IBM Plex Sans",
+      "text": "The CMS inside"
+     },
+     "monoShare": 0.22,
+     "monoProseShare": 0,
+     "monoFamilies": [
+      "ui-monospace"
+     ],
+     "monoSamples": [],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0,
+     "centerShare": 0.04,
+     "smallText": 0
+    },
+    "eyebrows": [],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#ffffff",
+     "bodyBgHsl": {
+      "h": 0,
+      "s": 0,
+      "l": 1
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#f1f3f5",
+       "top": 76,
+       "hsl": {
+        "h": 210,
+        "s": 0.17,
+        "l": 0.95
+       }
+      },
+      {
+       "color": "#f4f5f8",
+       "top": 452,
+       "hsl": {
+        "h": 225,
+        "s": 0.22,
+        "l": 0.96
+       }
+      },
+      {
+       "color": "#e3f0f3",
+       "top": 2027,
+       "hsl": {
+        "h": 191,
+        "s": 0.4,
+        "l": 0.92
+       }
+      },
+      {
+       "color": "#1b6c80",
+       "top": 6873,
+       "hsl": {
+        "h": 192,
+        "s": 0.65,
+        "l": 0.3
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#131416",
+       "share": 0.53
+      },
+      {
+       "color": "#5d6064",
+       "share": 0.17
+      },
+      {
+       "color": "#262628",
+       "share": 0.06
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.06
+      },
+      {
+       "color": "#3b3e42",
+       "share": 0.05
+      }
+     ],
+     "button": {
+      "bg": "#efefef",
+      "hsl": {
+       "h": 0,
+       "s": 0,
+       "l": 0.94
+      },
+      "fg": "#ffffff"
+     },
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 12,
+     "inHero": 5,
+     "radius": 8,
+     "height": 72,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": [
+      "Skip to content",
+      "Get started",
+      "Get started",
+      "bun add xenon-cms",
+      "Publish"
+     ]
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 5,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 0,
+     "hairlineSamples": [],
+     "outlinedBoxes": 0,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 21,
+     "boxRadius": 12,
+     "squareMedia": 0,
+     "roundedMedia": 2,
+     "mediaRadius": 8,
+     "textShadow": 0,
+     "cardRows": [
+      {
+       "count": 4,
+       "iconTopped": false,
+       "rounded": false,
+       "top": 4385
+      }
+     ]
+    },
+    "heroMedia": [],
+    "nav": {
+     "links": 6,
+     "fixed": false,
+     "height": 76,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": [
+     "ibm plex sans"
+    ]
+   },
+   "layout": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "pageH": 8247,
+    "margins": {
+     "left": 40,
+     "right": 40
+    },
+    "sections": [
+     {
+      "sel": "section.hero",
+      "tag": "section",
+      "top": 76,
+      "height": 844,
+      "words": 108,
+      "media": 1,
+      "middle": 51,
+      "heading": {
+       "text": "The CMS inside",
+       "size": 81,
+       "tag": "h1"
+      },
+      "left": 40,
+      "right": 125,
+      "textLeft": 40,
+      "textRight": 125,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section.section.try-section",
+      "tag": "section",
+      "top": 920,
+      "height": 934,
+      "words": 111,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Name a collection. Get its admin.",
+       "size": 48,
+       "tag": "h2"
+      },
+      "left": 40,
+      "right": 40,
+      "textLeft": 40,
+      "textRight": 83,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section#editors.section-flush",
+      "tag": "section",
+      "top": 2027,
+      "height": 2186,
+      "words": 189,
+      "media": 1,
+      "middle": 226,
+      "heading": {
+       "text": "Built for the people who write",
+       "size": 48,
+       "tag": "h2"
+      },
+      "left": 140,
+      "right": 95,
+      "textLeft": 158,
+      "textRight": 95,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": true
+     },
+     {
+      "sel": "section.strip.is-in",
+      "tag": "section",
+      "top": 4385,
+      "height": 720,
+      "words": 90,
+      "media": 0,
+      "middle": 91,
+      "heading": {
+       "text": "One post, start to finish",
+       "size": 24,
+       "tag": "h2"
+      },
+      "left": 29,
+      "right": 56,
+      "textLeft": 29,
+      "textRight": 56,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section#developers.section.dev",
+      "tag": "section",
+      "top": 5105,
+      "height": 679,
+      "words": 110,
+      "media": 0,
+      "middle": 174,
+      "heading": {
+       "text": "Types that follow your schema",
+       "size": 48,
+       "tag": "h2"
+      },
+      "left": 40,
+      "right": 202,
+      "textLeft": 40,
+      "textRight": 202,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section.section.stack",
+      "tag": "section",
+      "top": 5784,
+      "height": 916,
+      "words": 120,
+      "media": 0,
+      "middle": 265,
+      "heading": {
+       "text": "Runs on what you already own",
+       "size": 48,
+       "tag": "h2"
+      },
+      "left": 40,
+      "right": 40,
+      "textLeft": 40,
+      "textRight": 40,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section#start.cta.is-in",
+      "tag": "section",
+      "top": 6873,
+      "height": 810,
+      "words": 66,
+      "media": 0,
+      "middle": 500,
+      "heading": {
+       "text": "Add it to your app",
+       "size": 81,
+       "tag": "h2"
+      },
+      "left": 40,
+      "right": 64,
+      "textLeft": 40,
+      "textRight": 78,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "footer.footer",
+      "tag": "footer",
+      "top": 7683,
+      "height": 564,
+      "words": 42,
+      "media": 1,
+      "middle": 224,
+      "heading": {
+       "text": "An open-source headless CMS that lives inside your",
+       "size": 24,
+       "tag": "p"
+      },
+      "left": 32,
+      "right": 32,
+      "textLeft": 32,
+      "textRight": 176,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [
+     {
+      "top": 6704,
+      "height": 360
+     }
+    ],
+    "h1s": [
+     {
+      "text": "The CMS inside your Next.js app",
+      "size": 81,
+      "top": 203,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 40,
+      "n": 10
+     },
+     {
+      "x": 806,
+      "n": 10
+     },
+     {
+      "x": 840,
+      "n": 4
+     },
+     {
+      "x": 29,
+      "n": 1
+     },
+     {
+      "x": 744,
+      "n": 1
+     },
+     {
+      "x": 853,
+      "n": 1
+     }
+    ],
+    "leftBlocks": 27,
+    "bodySize": 17,
+    "stage": false,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0.08,
+    "voidBox": {
+     "x": 1260,
+     "y": 300,
+     "w": 180,
+     "h": 600
+    }
+   },
+   "app": null,
+   "consoleErrors": []
+  },
+  {
+   "width": 768,
+   "height": 1024,
+   "load": "load",
+   "screens": 10,
+   "filled": [
+    0.64,
+    0.5,
+    0.49,
+    0.58,
+    0.51,
+    0.73,
+    0.44,
+    0.14,
+    0.78,
+    1
+   ],
+   "motion": {
+    "elements": 34,
+    "css": 4,
+    "transitions": 26,
+    "scripted": 4,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 768,
+     "h": 1024
+    },
+    "page": {
+     "height": 10194,
+     "screens": 10,
+     "words": 862,
+     "img": 6,
+     "video": 0,
+     "canvas": 0,
+     "svg": 40,
+     "sections": 7,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 14,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 5,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "The CMS inside your Next.js app",
+     "words": 6,
+     "chars": 31,
+     "lines": 2,
+     "size": 43,
+     "vw": 5.6,
+     "font": "IBM Plex Sans",
+     "weight": 600,
+     "tracking": -0.035,
+     "leading": 1,
+     "upper": false,
+     "italic": false,
+     "mono": false,
+     "align": "left",
+     "position": "center",
+     "widthRatio": 0.94,
+     "top": 132,
+     "tag": "h1",
+     "kind": "heading"
+    },
+    "h1": {
+     "text": "The CMS inside your Next.js app",
+     "words": 6,
+     "lines": 2,
+     "size": 43,
+     "font": "IBM Plex Sans"
+    },
+    "headings": [
+     {
+      "text": "The CMS inside your Next.js app",
+      "words": 6,
+      "chars": 31,
+      "lines": 2,
+      "size": 43,
+      "vw": 5.6,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.035,
+      "leading": 1,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.94,
+      "top": 132,
+      "tag": "h1",
+      "kind": "heading"
+     },
+     {
+      "text": "Name a collection. Get its admin.",
+      "words": 6,
+      "chars": 33,
+      "lines": 2,
+      "size": 30,
+      "vw": 3.9,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.42,
+      "top": 950,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Built for the people who write",
+      "words": 6,
+      "chars": 30,
+      "lines": 2,
+      "size": 30,
+      "vw": 3.9,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "right",
+      "widthRatio": 0.41,
+      "top": 2283,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Designing for slow mornings",
+      "words": 4,
+      "chars": 27,
+      "lines": 2,
+      "size": 26,
+      "vw": 3.4,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.01,
+      "leading": 1.18,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.36,
+      "top": 2743,
+      "tag": "h3",
+      "kind": "heading"
+     },
+     {
+      "text": "Types that follow your schema",
+      "words": 5,
+      "chars": 29,
+      "lines": 2,
+      "size": 30,
+      "vw": 3.9,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.42,
+      "top": 5992,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Runs on what you already own",
+      "words": 6,
+      "chars": 28,
+      "lines": 2,
+      "size": 30,
+      "vw": 3.9,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.42,
+      "top": 7023,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Add it to your app",
+      "words": 5,
+      "chars": 18,
+      "lines": 2,
+      "size": 43,
+      "vw": 5.6,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.035,
+      "leading": 0.96,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.3,
+      "top": 8242,
+      "tag": "h2",
+      "kind": "heading"
+     }
+    ],
+    "headingSummary": {
+     "count": 7,
+     "maxLines": 2,
+     "over2Lines": 0,
+     "statements": 0,
+     "centered": 0,
+     "medianWords": 6,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "IBM Plex Sans",
+       "share": 0.78,
+       "mono": false
+      },
+      {
+       "family": "ui-monospace",
+       "share": 0.22,
+       "mono": true
+      }
+     ],
+     "familyCount": 2,
+     "sizes": [
+      14,
+      17,
+      21,
+      30,
+      43
+     ],
+     "sizeCount": 5,
+     "notLoaded": [],
+     "body": {
+      "font": "IBM Plex Sans",
+      "size": 17,
+      "leading": 1.55,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 16.6
+     },
+     "measureChars": 65,
+     "max": {
+      "size": 43,
+      "vw": 5.6,
+      "font": "IBM Plex Sans",
+      "text": "The CMS inside"
+     },
+     "monoShare": 0.22,
+     "monoProseShare": 0,
+     "monoFamilies": [
+      "ui-monospace"
+     ],
+     "monoSamples": [],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0,
+     "centerShare": 0.04,
+     "smallText": 0
+    },
+    "eyebrows": [],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#ffffff",
+     "bodyBgHsl": {
+      "h": 0,
+      "s": 0,
+      "l": 1
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#f1f3f5",
+       "top": 76,
+       "hsl": {
+        "h": 210,
+        "s": 0.17,
+        "l": 0.95
+       }
+      },
+      {
+       "color": "#e3f0f3",
+       "top": 2187,
+       "hsl": {
+        "h": 191,
+        "s": 0.4,
+        "l": 0.92
+       }
+      },
+      {
+       "color": "#f4f5f8",
+       "top": 6462,
+       "hsl": {
+        "h": 225,
+        "s": 0.22,
+        "l": 0.96
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 6500,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      },
+      {
+       "color": "#1b6c80",
+       "top": 8162,
+       "hsl": {
+        "h": 192,
+        "s": 0.65,
+        "l": 0.3
+       }
+      },
+      {
+       "color": "#131416",
+       "top": 9538,
+       "hsl": {
+        "h": 220,
+        "s": 0.07,
+        "l": 0.08
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#131416",
+       "share": 0.53
+      },
+      {
+       "color": "#5d6064",
+       "share": 0.17
+      },
+      {
+       "color": "#262628",
+       "share": 0.06
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.06
+      },
+      {
+       "color": "#3b3e42",
+       "share": 0.05
+      }
+     ],
+     "button": {
+      "bg": "#efefef",
+      "hsl": {
+       "h": 0,
+       "s": 0,
+       "l": 0.94
+      },
+      "fg": "#131416"
+     },
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 11,
+     "inHero": 4,
+     "radius": 8,
+     "height": 72,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": [
+      "Skip to content",
+      "Get started",
+      "Get started",
+      "bun add xenon-cms"
+     ]
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 5,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 0,
+     "hairlineSamples": [],
+     "outlinedBoxes": 0,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 21,
+     "boxRadius": 12,
+     "squareMedia": 0,
+     "roundedMedia": 2,
+     "mediaRadius": 8,
+     "textShadow": 0,
+     "cardRows": [
+      {
+       "count": 4,
+       "iconTopped": false,
+       "rounded": false,
+       "top": 4760
+      }
+     ]
+    },
+    "heroMedia": [],
+    "nav": {
+     "links": 6,
+     "fixed": false,
+     "height": 76,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": [
+     "ibm plex sans"
+    ]
+   },
+   "layout": {
+    "viewport": {
+     "w": 768,
+     "h": 1024
+    },
+    "pageH": 10194,
+    "margins": {
+     "left": 23,
+     "right": 26
+    },
+    "sections": [
+     {
+      "sel": "section.hero",
+      "tag": "section",
+      "top": 76,
+      "height": 762,
+      "words": 108,
+      "media": 1,
+      "middle": 20,
+      "heading": {
+       "text": "The CMS inside",
+       "size": 43,
+       "tag": "h1"
+      },
+      "left": 23,
+      "right": 42,
+      "textLeft": 23,
+      "textRight": 42,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section.section.try-section",
+      "tag": "section",
+      "top": 838,
+      "height": 1236,
+      "words": 111,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Name a collection. Get its admin.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 23,
+      "right": 23,
+      "textLeft": 23,
+      "textRight": 66,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section#editors.section-flush",
+      "tag": "section",
+      "top": 2187,
+      "height": 2462,
+      "words": 189,
+      "media": 1,
+      "middle": 78,
+      "heading": {
+       "text": "Built for the people who write",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 32,
+      "right": 20,
+      "textLeft": 50,
+      "textRight": 24,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": true
+     },
+     {
+      "sel": "section.strip.is-in",
+      "tag": "section",
+      "top": 4760,
+      "height": 1120,
+      "words": 90,
+      "media": 0,
+      "middle": 88,
+      "heading": {
+       "text": "One post, start to finish",
+       "size": 21,
+       "tag": "h2"
+      },
+      "left": 20,
+      "right": 68,
+      "textLeft": 20,
+      "textRight": 68,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section#developers.section.dev",
+      "tag": "section",
+      "top": 5880,
+      "height": 1030,
+      "words": 110,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Types that follow your schema",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 23,
+      "right": 166,
+      "textLeft": 23,
+      "textRight": 166,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section.section.stack",
+      "tag": "section",
+      "top": 6911,
+      "height": 1139,
+      "words": 120,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Runs on what you already own",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 23,
+      "right": 185,
+      "textLeft": 23,
+      "textRight": 185,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section#start.cta.is-in",
+      "tag": "section",
+      "top": 8162,
+      "height": 913,
+      "words": 66,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Add it to your app",
+       "size": 43,
+       "tag": "h2"
+      },
+      "left": 23,
+      "right": 309,
+      "textLeft": 23,
+      "textRight": 321,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "footer.footer",
+      "tag": "footer",
+      "top": 9074,
+      "height": 1120,
+      "words": 42,
+      "media": 1,
+      "middle": 118,
+      "heading": null,
+      "left": 32,
+      "right": 32,
+      "textLeft": 32,
+      "textRight": 198,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [
+     {
+      "top": 6708,
+      "height": 308
+     }
+    ],
+    "h1s": [
+     {
+      "text": "The CMS inside your Next.js app",
+      "size": 43,
+      "top": 132,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 20,
+      "n": 17
+     },
+     {
+      "x": 430,
+      "n": 10
+     }
+    ],
+    "leftBlocks": 27,
+    "bodySize": 17,
+    "stage": false,
+    "explains": true,
+    "slivers": [],
+    "voidShare": 0,
+    "voidBox": null
+   },
+   "app": null,
+   "consoleErrors": []
+  },
+  {
+   "width": 390,
+   "height": 844,
+   "load": "load",
+   "screens": 12,
+   "filled": [
+    0.74,
+    0.42,
+    0.51,
+    0.61,
+    0.47,
+    0.86,
+    0.62,
+    0.58,
+    0.29,
+    0.51,
+    0.66,
+    0.99
+   ],
+   "motion": {
+    "elements": 35,
+    "css": 4,
+    "transitions": 26,
+    "scripted": 5,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 390,
+     "h": 844
+    },
+    "page": {
+     "height": 9843,
+     "screens": 11.7,
+     "words": 743,
+     "img": 5,
+     "video": 0,
+     "canvas": 0,
+     "svg": 39,
+     "sections": 7,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 14,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 5,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "The CMS inside your Next.js app",
+     "words": 6,
+     "chars": 31,
+     "lines": 2,
+     "size": 40.6,
+     "vw": 10.4,
+     "font": "IBM Plex Sans",
+     "weight": 600,
+     "tracking": -0.035,
+     "leading": 1,
+     "upper": false,
+     "italic": false,
+     "mono": false,
+     "align": "left",
+     "position": "center",
+     "widthRatio": 0.9,
+     "top": 104,
+     "tag": "h1",
+     "kind": "heading"
+    },
+    "h1": {
+     "text": "The CMS inside your Next.js app",
+     "words": 6,
+     "lines": 2,
+     "size": 40.6,
+     "font": "IBM Plex Sans"
+    },
+    "headings": [
+     {
+      "text": "The CMS inside your Next.js app",
+      "words": 6,
+      "chars": 31,
+      "lines": 2,
+      "size": 40.6,
+      "vw": 10.4,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.035,
+      "leading": 1,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.9,
+      "top": 104,
+      "tag": "h1",
+      "kind": "heading"
+     },
+     {
+      "text": "Name a collection. Get its admin.",
+      "words": 6,
+      "chars": 33,
+      "lines": 2,
+      "size": 30,
+      "vw": 7.7,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.83,
+      "top": 939,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Built for the people who write",
+      "words": 6,
+      "chars": 30,
+      "lines": 2,
+      "size": 30,
+      "vw": 7.7,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.83,
+      "top": 2164,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "First it’s a draft only your team can see.",
+      "words": 9,
+      "chars": 42,
+      "lines": 2,
+      "size": 24,
+      "vw": 6.2,
+      "font": "IBM Plex Sans",
+      "weight": 400,
+      "tracking": -0.012,
+      "leading": 1.25,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.74,
+      "top": 4311,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "Then a teammate looks in without overwriting a word.",
+      "words": 9,
+      "chars": 52,
+      "lines": 2,
+      "size": 24,
+      "vw": 6.2,
+      "font": "IBM Plex Sans",
+      "weight": 400,
+      "tracking": -0.012,
+      "leading": 1.25,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.74,
+      "top": 4619,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "Publish when it’s right, not when a deploy is.",
+      "words": 9,
+      "chars": 46,
+      "lines": 2,
+      "size": 24,
+      "vw": 6.2,
+      "font": "IBM Plex Sans",
+      "weight": 400,
+      "tracking": -0.012,
+      "leading": 1.25,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.74,
+      "top": 4963,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "The site picks it up without a rebuild.",
+      "words": 8,
+      "chars": 39,
+      "lines": 2,
+      "size": 24,
+      "vw": 6.2,
+      "font": "IBM Plex Sans",
+      "weight": 400,
+      "tracking": -0.012,
+      "leading": 1.25,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.74,
+      "top": 5271,
+      "tag": "p",
+      "kind": "statement"
+     },
+     {
+      "text": "Types that follow your schema",
+      "words": 5,
+      "chars": 29,
+      "lines": 2,
+      "size": 30,
+      "vw": 7.7,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.83,
+      "top": 5674,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Runs on what you already own",
+      "words": 6,
+      "chars": 28,
+      "lines": 2,
+      "size": 30,
+      "vw": 7.7,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.025,
+      "leading": 1.06,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.83,
+      "top": 6621,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Add it to your app",
+      "words": 5,
+      "chars": 18,
+      "lines": 2,
+      "size": 40.6,
+      "vw": 10.4,
+      "font": "IBM Plex Sans",
+      "weight": 600,
+      "tracking": -0.035,
+      "leading": 0.96,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.56,
+      "top": 8163,
+      "tag": "h2",
+      "kind": "heading"
+     }
+    ],
+    "headingSummary": {
+     "count": 10,
+     "maxLines": 2,
+     "over2Lines": 0,
+     "statements": 4,
+     "centered": 0,
+     "medianWords": 6,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "IBM Plex Sans",
+       "share": 0.84,
+       "mono": false
+      },
+      {
+       "family": "ui-monospace",
+       "share": 0.16,
+       "mono": true
+      }
+     ],
+     "familyCount": 2,
+     "sizes": [
+      13,
+      14,
+      17,
+      21,
+      24,
+      30,
+      41
+     ],
+     "sizeCount": 7,
+     "notLoaded": [],
+     "body": {
+      "font": "IBM Plex Sans",
+      "size": 17,
+      "leading": 1.55,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 16.6
+     },
+     "measureChars": 41,
+     "max": {
+      "size": 40.6,
+      "vw": 10.4,
+      "font": "IBM Plex Sans",
+      "text": "The CMS inside"
+     },
+     "monoShare": 0.16,
+     "monoProseShare": 0,
+     "monoFamilies": [
+      "ui-monospace"
+     ],
+     "monoSamples": [],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0,
+     "centerShare": 0.04,
+     "smallText": 0
+    },
+    "eyebrows": [],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#ffffff",
+     "bodyBgHsl": {
+      "h": 0,
+      "s": 0,
+      "l": 1
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#f1f3f5",
+       "top": 64,
+       "hsl": {
+        "h": 210,
+        "s": 0.17,
+        "l": 0.95
+       }
+      },
+      {
+       "color": "#f4f5f8",
+       "top": 479,
+       "hsl": {
+        "h": 225,
+        "s": 0.22,
+        "l": 0.96
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 517,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      },
+      {
+       "color": "#e3f0f3",
+       "top": 2385,
+       "hsl": {
+        "h": 191,
+        "s": 0.4,
+        "l": 0.92
+       }
+      },
+      {
+       "color": "#e7eaed",
+       "top": 4583,
+       "hsl": {
+        "h": 210,
+        "s": 0.14,
+        "l": 0.92
+       }
+      },
+      {
+       "color": "#dde1e5",
+       "top": 4927,
+       "hsl": {
+        "h": 210,
+        "s": 0.13,
+        "l": 0.88
+       }
+      },
+      {
+       "color": "#d3e7ec",
+       "top": 5235,
+       "hsl": {
+        "h": 192,
+        "s": 0.4,
+        "l": 0.88
+       }
+      },
+      {
+       "color": "#1b6c80",
+       "top": 8099,
+       "hsl": {
+        "h": 192,
+        "s": 0.65,
+        "l": 0.3
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#131416",
+       "share": 0.59
+      },
+      {
+       "color": "#5d6064",
+       "share": 0.18
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.07
+      },
+      {
+       "color": "#e6e8eb",
+       "share": 0.06
+      },
+      {
+       "color": "#262628",
+       "share": 0.03
+      }
+     ],
+     "button": {
+      "bg": "#efefef",
+      "hsl": {
+       "h": 0,
+       "s": 0,
+       "l": 0.94
+      },
+      "fg": "#131416"
+     },
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 14,
+     "inHero": 5,
+     "radius": 8,
+     "height": 72,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": [
+      "Skip to content",
+      "Get started",
+      "Get started",
+      "bun add xenon-cms",
+      "Publish"
+     ]
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 4,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 0,
+     "hairlineSamples": [],
+     "outlinedBoxes": 0,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 19,
+     "boxRadius": 12,
+     "squareMedia": 0,
+     "roundedMedia": 1,
+     "mediaRadius": 14,
+     "textShadow": 0,
+     "cardRows": []
+    },
+    "heroMedia": [],
+    "nav": {
+     "links": 2,
+     "fixed": false,
+     "height": 64,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": [
+     "ibm plex sans"
+    ]
+   },
+   "layout": {
+    "viewport": {
+     "w": 390,
+     "h": 844
+    },
+    "pageH": 9843,
+    "margins": {
+     "left": 20,
+     "right": 20
+    },
+    "sections": [
+     {
+      "sel": "section.hero",
+      "tag": "section",
+      "top": 64,
+      "height": 763,
+      "words": 61,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "The CMS inside",
+       "size": 41,
+       "tag": "h1"
+      },
+      "left": 20,
+      "right": 20,
+      "textLeft": 20,
+      "textRight": 27,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section.section.try-section",
+      "tag": "section",
+      "top": 827,
+      "height": 1225,
+      "words": 104,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Name a collection. Get its admin.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 20,
+      "right": 20,
+      "textLeft": 20,
+      "textRight": 24,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section#editors.section-flush",
+      "tag": "section",
+      "top": 2164,
+      "height": 1946,
+      "words": 161,
+      "media": 1,
+      "middle": 0,
+      "heading": {
+       "text": "Designing for slow mornings",
+       "size": 21,
+       "tag": "h3"
+      },
+      "left": 16,
+      "right": 16,
+      "textLeft": 20,
+      "textRight": 20,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section.strip.is-in",
+      "tag": "section",
+      "top": 4222,
+      "height": 1340,
+      "words": 90,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "First it’s a draft only your team can see.",
+       "size": 24,
+       "tag": "p"
+      },
+      "left": 20,
+      "right": 84,
+      "textLeft": 20,
+      "textRight": 84,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section#developers.section.dev",
+      "tag": "section",
+      "top": 5562,
+      "height": 948,
+      "words": 90,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Types that follow your schema",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 20,
+      "right": 24,
+      "textLeft": 20,
+      "textRight": 24,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "div.stack-intro",
+      "tag": "div",
+      "top": 6621,
+      "height": 288,
+      "words": 49,
+      "media": 0,
+      "middle": 0,
+      "heading": null,
+      "left": 20,
+      "right": 29,
+      "textLeft": 20,
+      "textRight": 29,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "div.stack-list",
+      "tag": "div",
+      "top": 6957,
+      "height": 1030,
+      "words": 65,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Database",
+       "size": 17,
+       "tag": "h3"
+      },
+      "left": 20,
+      "right": 149,
+      "textLeft": 20,
+      "textRight": 149,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "section#start.cta.is-in",
+      "tag": "section",
+      "top": 8099,
+      "height": 914,
+      "words": 66,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Add it to your app",
+       "size": 41,
+       "tag": "h2"
+      },
+      "left": 20,
+      "right": 34,
+      "textLeft": 20,
+      "textRight": 34,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": true,
+      "pinned": false
+     },
+     {
+      "sel": "footer.footer",
+      "tag": "footer",
+      "top": 9013,
+      "height": 830,
+      "words": 42,
+      "media": 0,
+      "middle": 0,
+      "heading": null,
+      "left": 26,
+      "right": 26,
+      "textLeft": 26,
+      "textRight": 27,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [
+     {
+      "top": 6352,
+      "height": 264
+     }
+    ],
+    "h1s": [
+     {
+      "text": "The CMS inside your Next.js app",
+      "size": 41,
+      "top": 104,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 20,
+      "n": 27
+     }
+    ],
+    "leftBlocks": 27,
+    "bodySize": 17,
+    "stage": false,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0,
+    "voidBox": null
+   },
+   "app": null,
+   "consoleErrors": []
+  }
+ ],
+ "findings": [
+  {
+   "level": "WARN",
+   "id": "no-real-pictures",
+   "width": 1440,
+   "message": "Only 0 real photograph(s) or clip(s); the rest are interface fragments.",
+   "fix": "Add two or more real pictures of the customer's world from scripts/assets.mjs, not stock of people at laptops."
+  },
+  {
+   "level": "WARN",
+   "id": "no-footage",
+   "width": 1440,
+   "message": "No video anywhere on the page.",
+   "fix": "Look for one honest clip with scripts/assets.mjs --video (the place, the material, the process) and use it as a muted loop with a poster frame. Defend its absence only if no clip fits the subject."
+  }
+ ],
+ "images": [
+  {
+   "viewport": "desktop",
+   "width": 1440,
+   "fold": "/home/grenishrai/Projects/xenon/.taste-skill/before/desktop-fold.jpg",
+   "pages": [
+    "/home/grenishrai/Projects/xenon/.taste-skill/before/desktop-page-01.jpg",
+    "/home/grenishrai/Projects/xenon/.taste-skill/before/desktop-page-02.jpg",
+    "/home/grenishrai/Projects/xenon/.taste-skill/before/desktop-page-03.jpg"
+   ],
+   "film": []
+  },
+  {
+   "viewport": "tablet",
+   "width": 768,
+   "fold": "/home/grenishrai/Projects/xenon/.taste-skill/before/tablet-fold.jpg",
+   "pages": [
+    "/home/grenishrai/Projects/xenon/.taste-skill/before/tablet-page-01.jpg",
+    "/home/grenishrai/Projects/xenon/.taste-skill/before/tablet-page-02.jpg"
+   ],
+   "film": []
+  },
+  {
+   "viewport": "mobile",
+   "width": 390,
+   "fold": "/home/grenishrai/Projects/xenon/.taste-skill/before/mobile-fold.jpg",
+   "pages": [
+    "/home/grenishrai/Projects/xenon/.taste-skill/before/mobile-page-01.jpg",
+    "/home/grenishrai/Projects/xenon/.taste-skill/before/mobile-page-02.jpg"
+   ],
+   "film": []
+  }
+ ]
+}

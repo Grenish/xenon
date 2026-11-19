@@ -1,0 +1,113 @@
+---
+title: Collections
+description: Define content schemas, customize admin displays, configure slug generation, and manage document lifecycles in Xenon.
+---
+
+## Defining a collection
+
+You can group related content, configure editing workflows, and generate URL slugs by declaring collections.
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, text, textarea } from "xenon-cms";
+
+export const posts = defineCollection({
+  slug: "posts",
+  labels: {
+    singular: "Post",
+    plural: "Posts",
+  },
+  slugFrom: "title",
+  drafts: true,
+  admin: {
+    useAsTitle: "title",
+    defaultColumns: ["title", "status", "updatedAt"],
+    group: "Editorial",
+  },
+  fields: {
+    title: text({ required: true, maxLength: 200 }),
+    excerpt: textarea(),
+  },
+});
+```
+
+A collection definition specifies the database table mapping, validation schemas, and editorial controls for a content type.
+
+## Configuration options
+
+The `defineCollection` function accepts an options object with the following properties:
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `slug` | `string` | Required | Unique identifier matching `/^[a-z][a-z0-9-]*$/`. Used in URLs and database tables. |
+| `fields` | `Record<string, Field>` | Required | Object map of field definitions keyed by field name. |
+| `labels` | `{ singular?: string; plural?: string }` | Humanized slug | Display labels used throughout the admin interface. |
+| `slugFrom` | `string` | `undefined` | Key of a `text` field used to automatically derive the document slug. |
+| `drafts` | `boolean` | `true` | Enables draft saving and publishing workflows. |
+| `upload` | `boolean \| UploadConfig` | `false` | Enables binary file uploads for media collections. |
+| `admin` | `CollectionAdminOptions` | `{}` | `useAsTitle` (the text field used as each document's title), `defaultColumns` (list columns), `group` (sidebar group) and `description`. |
+| `access` | `CollectionAccess` | Default rules | Controls read, create, update, and delete permissions. |
+
+## Slug generation
+
+When `slugFrom` references a declared `text` field, Xenon derives the document slug automatically.
+
+```ts
+const articles = defineCollection({
+  slug: "articles",
+  slugFrom: "title",
+  fields: {
+    title: text({ required: true }),
+  },
+});
+```
+
+Slugs update automatically as the source field changes while a document is in draft mode. When the document is published for the first time, the slug freezes to prevent broken URLs. Duplicate slugs receive automatic numeric suffixes (`-2`, `-3`).
+
+## Admin customization
+
+Configure how records display in the admin dashboard.
+
+```ts
+const authors = defineCollection({
+  slug: "authors",
+  admin: {
+    useAsTitle: "name",
+    defaultColumns: ["name", "email", "createdAt"],
+    group: "People",
+  },
+  fields: {
+    name: text({ required: true }),
+    email: text({ required: true }),
+  },
+});
+```
+
+The `useAsTitle` option specifies which field represents the document in breadcrumbs and relationship dropdowns. The `defaultColumns` array configures the list view table, accepting both declared field keys and system keys (`id`, `slug`, `status`, `createdAt`, `updatedAt`).
+
+## Upload collections
+
+Collections can manage binary assets such as images and documents by enabling the `upload` option.
+
+```ts
+const media = defineCollection({
+  slug: "media",
+  upload: {
+    mimeTypes: ["image/jpeg", "image/png", "image/webp"],
+    maxFileSize: 5 * 1024 * 1024,
+  },
+  fields: {
+    alt: text({ required: true }),
+  },
+});
+```
+
+Upload collections automatically receive system metadata fields: `filename`, `mimeType`, `filesize`, `url`, `width`, and `height`. Upload collections do not use draft workflows; uploaded assets publish immediately upon creation.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/concepts/fields" title="Fields" />
+  <Card href="/docs/concepts/drafts" title="Drafts and publishing" />
+
+</Cards>

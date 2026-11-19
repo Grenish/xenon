@@ -1,0 +1,131 @@
+---
+title: Project structure
+description: Understand the three files and one setting required to integrate Xenon into a Next.js App Router application.
+---
+
+## Overview
+
+You can integrate Xenon into any Next.js App Router project by adding three files and one environment setting.
+
+| Item | Path | Purpose |
+| --- | --- | --- |
+| Configuration file | `src/xenon.config.ts` | Collections, database adapter, storage, and authentication options |
+| API route handler | `src/app/api/xenon/[...slug]/route.ts` | REST endpoints for admin operations and client fetching |
+| Admin page | `src/app/admin/[[...segments]]/page.tsx` | Next.js Server Component rendering the CMS admin UI |
+| Secret setting | `XENON_SECRET` | Secret key used for signing sessions and admin presence tokens |
+
+## The configuration file
+
+Place your configuration in `src/xenon.config.ts` (or in the project root if you do not use `src/`). The snippets import `@/xenon.config`, which assumes your tsconfig maps `@/*` to `./src/*`, as create-next-app sets up by default. Without `src/`, map it to `./*` or use a relative import.
+
+```ts title="src/xenon.config.ts"
+import { defineCollection, defineConfig, text } from "xenon-cms";
+import { pgliteAdapter } from "xenon-cms/pglite";
+import { LocalStorageAdapter } from "xenon-cms/storage/local";
+
+const posts = defineCollection({
+  slug: "posts",
+  fields: {
+    title: text({ required: true }),
+  },
+});
+
+export default defineConfig({
+  collections: [posts],
+  db: pgliteAdapter({ dataDir: ".xenon/pgdata" }),
+  storage: new LocalStorageAdapter({
+    directory: ".xenon/uploads",
+  }),
+});
+```
+
+The configuration file exports a default object created with `defineConfig`. It configures your collections, your database adapter, and your storage adapter. This example uses the embedded PGlite database, which also needs `serverExternalPackages: ["@electric-sql/pglite"]` and `experimental: { cpus: 1 }` in `next.config.ts` (see [Installation](/docs/start/installation#embedded-database-for-local-development)).
+
+## The API route handler
+
+Create a catch-all route handler at `src/app/api/xenon/[...slug]/route.ts`.
+
+```ts title="src/app/api/xenon/[...slug]/route.ts"
+import config from "@/xenon.config";
+import { createApiHandler } from "xenon-cms/next";
+
+export const { GET, POST, PATCH, DELETE } = createApiHandler(config);
+```
+
+The `createApiHandler` function mounts the REST endpoints used by the admin interface and external clients. The catch-all pattern `[...slug]` forwards all requests under `/api/xenon/*` to the Xenon API dispatcher.
+
+## The admin page
+
+Create an optional catch-all route at `src/app/admin/[[...segments]]/page.tsx`.
+
+```tsx title="src/app/admin/[[...segments]]/page.tsx"
+import "xenon-cms/styles.css";
+import config from "@/xenon.config";
+import {
+  AdminPage,
+  type AdminActionInput,
+  type AdminPageProps,
+  runAdminAction,
+} from "xenon-cms/next";
+
+export const metadata = { title: "Xenon Admin" };
+
+async function action(input: AdminActionInput) {
+  "use server";
+  return runAdminAction(config, input);
+}
+
+export default function Page(props: Pick<AdminPageProps, "params" | "searchParams">) {
+  return <AdminPage config={config} action={action} {...props} />;
+}
+```
+
+The admin page renders the full administrative dashboard at `/admin`. The double-bracket syntax `[[...segments]]` matches both `/admin` and sub-routes such as `/admin/collections/posts` and `/admin/collections/posts/new`.
+
+## The required setting
+
+Set the `XENON_SECRET` environment variable in your production deployment.
+
+```dotenv title=".env.local"
+XENON_SECRET="your-secure-random-secret"
+```
+
+Xenon resolves secrets in order: `config.auth.secret`, `XENON_SECRET`, then `BETTER_AUTH_SECRET`. The secret signs user sessions and admin presence tokens.
+
+<Callout>
+
+In development, Xenon falls back to a fixed development secret if no secret is set. In production (`NODE_ENV === "production"`), Xenon throws an error the first time the secret is needed (for authentication or admin operations) if none is configured.
+
+</Callout>
+
+## Directory tree
+
+A standard Next.js App Router project using Xenon has the following structure:
+
+```text
+my-app/
+├── src/
+│   ├── app/
+│   │   ├── admin/
+│   │   │   └── [[...segments]]/
+│   │   │       └── page.tsx
+│   │   ├── api/
+│   │   │   └── xenon/
+│   │   │       └── [...slug]/
+│   │   │           └── route.ts
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   └── xenon.config.ts
+├── .env.local
+├── package.json
+└── tsconfig.json
+```
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/concepts/collections" title="Collections" />
+  <Card href="/docs/concepts/fields" title="Fields" />
+
+</Cards>

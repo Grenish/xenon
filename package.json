@@ -9,6 +9,7 @@
     "test": "bun run --filter xenon-cms test",
     "typecheck": "bun run --filter '*' typecheck",
     "playground": "bun run --filter playground dev",
+    "web": "bun run --filter web dev",
     "dev:all": "bash scripts/dev-all.sh"
   },
   "devDependencies": {

@@ -1,0 +1,70 @@
+---
+title: Mounting the admin
+description: Mount the Xenon administrative dashboard into your Next.js App Router application.
+---
+
+## Route mounting
+
+You can embed the complete Xenon administrative dashboard into your Next.js application using an optional catch-all page route.
+
+```tsx title="src/app/admin/[[...segments]]/page.tsx"
+import "xenon-cms/styles.css";
+import config from "@/xenon.config";
+import {
+  AdminPage,
+  type AdminActionInput,
+  type AdminPageProps,
+  runAdminAction,
+} from "xenon-cms/next";
+
+export const metadata = { title: "Xenon Admin" };
+
+async function action(input: AdminActionInput) {
+  "use server";
+  return runAdminAction(config, input);
+}
+
+export default function Page(props: Pick<AdminPageProps, "params" | "searchParams">) {
+  return <AdminPage config={config} action={action} {...props} />;
+}
+```
+
+The route uses the double-bracket syntax `[[...segments]]` so Next.js routes both `/admin` and sub-paths like `/admin/collections/posts` to the same component.
+
+## Required stylesheet
+
+Import `xenon-cms/styles.css` directly in your admin page route:
+
+```tsx
+import "xenon-cms/styles.css";
+```
+
+All admin styles are scoped under the `.xenon-admin` class selector with `xe:` Tailwind utility prefixes to avoid interfering with your site styles.
+
+## Server Action binding
+
+The admin dashboard performs mutations using Next.js Server Actions:
+
+```tsx
+async function action(input: AdminActionInput) {
+  "use server";
+  return runAdminAction(config, input);
+}
+```
+
+The `action` function must be declared within the page file because it closes over your module-level `config` instance. The `runAdminAction` runner validates user sessions on every request before executing operations.
+
+## First-run bootstrap
+
+When you launch Xenon for the first time on a fresh database, visiting `/admin` detects that zero users exist and redirects to `/admin/setup`.
+
+The setup screen prompts you to register the initial administrator account. After creating this account, the setup route disables itself, and future users must be created or invited by an administrator.
+
+## Next steps
+
+<Cards>
+
+  <Card href="/docs/admin/editors" title="Users and roles" />
+  <Card href="/docs/admin/presence" title="Presence and soft locks" />
+
+</Cards>
