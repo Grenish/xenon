@@ -8,4 +8,4 @@ dist
 .DS_Store
 .xenon-uploads
 .xenon
-docs/
+/docs/
