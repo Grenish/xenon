@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import type { ReactNode } from "react";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
@@ -18,7 +17,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <link rel="stylesheet" href="/stageshow/kit/parts/Toast.css" precedence="default" />
         {children}
         <Analytics />
-        <Script src="https://scripts.simpleanalyticscdn.com/latest.js" strategy="afterInteractive" />
       </body>
     </html>
   );
