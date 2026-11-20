@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { nav } from "@/docs/nav";
 import { TopBar } from "@/docs/ui/top-bar";
 import { Sidebar } from "@/docs/ui/sidebar";
+import { ScrollbarActivity } from "@/docs/ui/scrollbar-activity";
 import { THEME_SCRIPT } from "@/docs/ui/theme-switch";
 import "@/docs/docs.css";
 
@@ -12,6 +13,7 @@ export default function DocsLayout({ children }: { children: ReactNode }) {
     // data-theme than it rendered: expected, not a mismatch.
     <div className="docs min-h-svh bg-void text-paper" suppressHydrationWarning>
       <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      <ScrollbarActivity />
       <a
         className="absolute -top-20 left-gutter z-50 bg-paper px-4 py-3 text-void focus:top-3"
         href="#doc"
