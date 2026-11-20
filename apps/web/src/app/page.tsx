@@ -1,5 +1,7 @@
 import type React from "react";
 import { XenonMark } from "@/components/logo";
+import { LandingNav } from "@/components/landing-nav";
+import { FooterMark } from "@/components/footer-mark";
 import { TryCollection } from "@/components/try-collection";
 import { CopyButton } from "@/components/install";
 import { Slip } from "@/components/slip";
@@ -9,6 +11,7 @@ import { Credits } from "@/components/photos";
 import { HeroDemo, TypesDemo } from "@/demos/client";
 import { HeroDischarge } from "@/components/hero-discharge";
 import { StackField } from "@/components/stack-field";
+import { OrbitalField } from "@/components/orbital-field";
 
 const GITHUB = "https://github.com/Grenish/xenon";
 const DOCS = "/docs";
@@ -126,32 +129,32 @@ export default function Home() {
         Skip to content
       </a>
 
+      <LandingNav>
+        <a className="inline-flex items-center gap-2.5 font-semibold text-paper no-underline" href="/" aria-label="Xenon, home">
+          <XenonMark className="h-3.5 w-auto" />
+          <span className="text-body">Xenon</span>
+        </a>
+        <div className="flex gap-6 max-md:hidden">
+          {[
+            ["Editors", "#editors"],
+            ["Developers", "#developers"],
+            ["Docs", DOCS],
+            ["GitHub", GITHUB],
+          ].map(([label, href]) => (
+            <a key={label} href={href} className="text-mist no-underline transition-colors hover:text-paper">
+              {label}
+            </a>
+          ))}
+        </div>
+        <a href={GITHUB} className="text-mist no-underline md:hidden">
+          GitHub
+        </a>
+      </LandingNav>
+
       <div className="relative z-10 bg-void">
         {/* ---------- First screen: the statement, nothing else */}
-        <header className={`relative isolate flex min-h-svh flex-col ${FRAME} pt-6 pb-8`} aria-labelledby="hero-title">
+        <header className={`relative isolate flex min-h-[calc(100svh-var(--landing-nav-height))] flex-col ${FRAME} pb-8`} aria-labelledby="hero-title">
           <HeroDischarge />
-          <div className="flex items-center justify-between gap-6 text-small">
-            <a className="inline-flex items-center gap-2.5 font-semibold text-paper no-underline" href="/" aria-label="Xenon, home">
-              <XenonMark className="h-3.5 w-auto" />
-              <span className="text-body">Xenon</span>
-            </a>
-            <nav className="flex gap-6 max-md:hidden" aria-label="Main">
-              {[
-                ["Editors", "#editors"],
-                ["Developers", "#developers"],
-                ["Docs", DOCS],
-                ["GitHub", GITHUB],
-              ].map(([label, href]) => (
-                <a key={label} href={href} className="text-mist no-underline transition-colors hover:text-paper">
-                  {label}
-                </a>
-              ))}
-            </nav>
-            <a href={GITHUB} className="text-mist no-underline md:hidden">
-              GitHub
-            </a>
-          </div>
-
           <h1 id="hero-title" className="mt-[13svh] text-display font-semibold max-md:text-[16vw] max-md:leading-[0.9]">
             <span className="mask-line">
               <span>Schema in.</span>
@@ -289,7 +292,7 @@ export default function Home() {
           {/* ---------- Close: the page inverted */}
           <section
             id="start"
-            className={`${FRAME} mt-section flex min-h-[90svh] flex-col bg-sheet pt-[12svh] pb-10 text-ink max-md:min-h-[80svh]`}
+            className={`${FRAME} relative isolate mt-section flex min-h-[90svh] flex-col bg-sheet pt-[12svh] pb-10 text-ink max-md:min-h-[80svh]`}
             aria-labelledby="close-title"
             data-rise-group
           >
@@ -297,7 +300,8 @@ export default function Home() {
               <span className="block">Your schema.</span>
               <span className="block">Your admin.</span>
             </h2>
-            <div className="mt-auto flex items-end justify-between gap-10 pt-16 max-md:flex-col max-md:items-stretch">
+            <OrbitalField />
+            <div className="mt-auto flex items-end justify-between gap-10 pt-4 md:pt-16 max-md:flex-col max-md:items-stretch">
               <p className="max-w-[36ch] text-statement" data-rise>
                 Needs Next.js 16 and React 19. Then open your app&rsquo;s admin page and create the first account.
               </p>
@@ -308,7 +312,7 @@ export default function Home() {
       </div>
 
       {/* ---------- Footer, uncovered as the page slides away */}
-      <footer className={`sticky bottom-0 z-0 grid min-h-svh grid-rows-[auto_1fr_auto] ${FRAME} pt-10 pb-5`}>
+      <footer className={`sticky bottom-0 z-0 grid min-h-[calc(100svh-var(--landing-nav-height))] grid-rows-[auto_1fr_auto] ${FRAME} pt-10 pb-5`}>
         <div className="grid grid-cols-2 gap-x-8 gap-y-8 md:grid-cols-4">
           <FooterCol lead="Product">
             <a href={DOCS}>Documentation</a>
@@ -332,7 +336,7 @@ export default function Home() {
         </div>
         <div />
         <div>
-          <XenonMark className="block h-auto w-full text-paper" title="Xenon" />
+          <FooterMark />
           <Credits />
         </div>
       </footer>
