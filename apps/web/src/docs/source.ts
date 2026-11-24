@@ -170,7 +170,7 @@ async function highlight(node: HtmlNode): Promise<void> {
 
 const parser = createProcessor({ remarkPlugins: [remarkGfm] });
 
-async function readSource(slug: string[]) {
+export async function readSource(slug: string[]) {
   const path = join(contentDirectory, docFilename(slug));
   const raw = await readFile(path, "utf8");
   return { path, ...splitFrontmatter(raw.replace(/\r\n/g, "\n")) };

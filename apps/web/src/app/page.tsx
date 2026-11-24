@@ -12,6 +12,9 @@ import { HeroDemo, TypesDemo } from "@/demos/client";
 import { HeroDischarge } from "@/components/hero-discharge";
 import { StackField } from "@/components/stack-field";
 import { OrbitalField } from "@/components/orbital-field";
+import { homeTitle, pageMetadata, summary } from "@/seo/site";
+
+export const metadata = pageMetadata("/", homeTitle, summary);
 
 const GITHUB = "https://github.com/Grenish/xenon";
 const DOCS = "/docs";

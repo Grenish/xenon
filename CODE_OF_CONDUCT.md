@@ -30,9 +30,9 @@ official channel, as well as when someone represents the project in public.
 
 ## Reporting
 
-Report unacceptable behavior privately to the maintainers. Use the repository's
-[private vulnerability reporting](https://github.com/Grenish/xenon/security) for anything sensitive, or
-contact the maintainer listed on the GitHub profile of the repository owner, **[maintainer contact to be added before release]**.
+Report unacceptable behavior privately to the maintainers by emailing
+[xenon@grenishrai.pro](mailto:xenon@grenishrai.pro), or use the repository's
+[private vulnerability reporting](https://github.com/Grenish/xenon/security) for anything sensitive.
 Include what happened, where, and any links or screenshots. Reports are reviewed confidentially, and the
 reporter's identity is kept private unless they agree otherwise.
 
