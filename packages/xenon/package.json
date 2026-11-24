@@ -11,6 +11,9 @@
   "homepage": "https://github.com/Grenish/xenon#readme",
   "bugs": "https://github.com/Grenish/xenon/issues",
   "type": "module",
+  "bin": {
+    "xenon": "./dist/cli.js"
+  },
   "sideEffects": [
     "*.css",
     "./dist/client.js"

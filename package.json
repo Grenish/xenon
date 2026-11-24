@@ -2,17 +2,26 @@
   "name": "xenon-monorepo",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "build": "bun run --filter xenon-cms build",
+    "build": "bun run --filter './packages/*' build",
     "dev": "bun run --filter xenon-cms dev",
-    "test": "bun run --filter xenon-cms test",
+    "test": "bun run --filter './packages/*' test",
     "typecheck": "bun run --filter '*' typecheck",
     "playground": "bun run --filter playground dev",
     "web": "bun run --filter web dev",
-    "dev:all": "bash scripts/dev-all.sh"
+    "dev:all": "bash scripts/dev-all.sh",
+    "test:scripts": "bun test ./scripts/",
+    "bench": "bun scripts/bench.ts",
+    "changeset": "changeset",
+    "version-packages": "changeset version && bun install --lockfile-only",
+    "release": "bun run build && changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "3.0.3",
     "typescript": "^5.9.3"
   }
 }

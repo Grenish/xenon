@@ -1,0 +1,32 @@
+{
+  "name": "create-xenon-app",
+  "version": "0.0.1",
+  "description": "Scaffold a new XenonCMS project with zero setup.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Grenish/xenon.git",
+    "directory": "packages/create-xenon-app"
+  },
+  "homepage": "https://github.com/Grenish/xenon#readme",
+  "bugs": {
+    "url": "https://github.com/Grenish/xenon/issues"
+  },
+  "type": "module",
+  "bin": {
+    "create-xenon-app": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && bun build src/index.ts --outfile dist/index.js --target node --format esm",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^5.9.3"
+  }
+}

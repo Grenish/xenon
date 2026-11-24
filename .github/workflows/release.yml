@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Never run two releases at once; a later push waits rather than cancelling a publish mid-flight.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Version PR or publish
+    if: github.repository == 'Grenish/xenon'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write        # version commits and git tags
+      pull-requests: write   # the "Version packages" PR
+      id-token: write        # npm provenance / trusted publishing
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24   # ships npm 11, which supports trusted publishing and provenance
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - uses: changesets/action@v2
+        with:
+          version-script: bun run version-packages
+          publish-script: bun run release
+          commit-message: "Version packages"
+          pr-title: "Version packages"
+        env:
+          # Needed for the first publish. Once xenon-cms and create-xenon-app exist on npm, configure them as
+          # trusted publishers for this workflow and delete the NPM_TOKEN secret: npm then uses OIDC.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

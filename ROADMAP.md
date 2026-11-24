@@ -17,7 +17,7 @@ Turn the audited baseline into an installable, CI-verified `0.1.0` release.
 
 - [#5](https://github.com/Grenish/xenon/issues/5) — Fix remaining Low audit bugs (#23–#28)
 - [#6](https://github.com/Grenish/xenon/issues/6) — Add GitHub Actions CI, Changesets release workflow & reproducible benchmarks
-- [#7](https://github.com/Grenish/xenon/issues/7) — Ship `npx xenon init` CLI & `create-xenon-app` with pluggable framework templates
+- [#7](https://github.com/Grenish/xenon/issues/7) — Ship `npx xenon-cms init` CLI & `create-xenon-app` with pluggable framework templates
 
 ## [P1: Modeling, Query, Hooks & Core HTTP](https://github.com/Grenish/xenon/milestone/2)
 
