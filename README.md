@@ -43,6 +43,10 @@ To run the adapter tests against a real PostgreSQL server:
 XENON_TEST_DATABASE_URL=postgres://user:pass@localhost:5432/db bun test packages/xenon/test/adapters/postgres.test.ts
 ```
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md), the live [GitHub Project board](https://github.com/users/Grenish/projects/5), and the pinned [v1.0 Roadmap tracker](https://github.com/Grenish/xenon/issues/29).
+
 ## License
 
 MIT
