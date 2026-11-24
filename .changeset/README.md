@@ -4,7 +4,7 @@ This folder holds [Changesets](https://changesets.dev): one small markdown file 
 which published packages it bumps and how. The release workflow turns them into version bumps and `CHANGELOG.md`
 entries, then publishes to npm.
 
-Published packages live in `packages/*` (today `xenon-cms`). The apps (`playground`, `web`) are private and never versioned.
+Published packages: `xenon-cms` and `create-xenon-app` (versioned together). The apps (`playground`, `web`) are private and never versioned.
 
 ## Adding one
 

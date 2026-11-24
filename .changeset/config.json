@@ -6,7 +6,7 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "ignore": [],
-  "fixed": [],
+  "fixed": [["xenon-cms", "create-xenon-app"]],
   "linked": [],
   "updateInternalDependencies": "patch",
   "privatePackages": { "version": false, "tag": false }

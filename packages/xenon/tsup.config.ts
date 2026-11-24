@@ -78,4 +78,12 @@ export default defineConfig([
     treeshake: false,
     banner: { js: '"use client";' },
   },
+  {
+    ...shared,
+    entry: { cli: "src/cli/index.ts" },
+    platform: "node",
+    dts: false,
+    splitting: false,
+    banner: { js: "#!/usr/bin/env node" },
+  },
 ]);

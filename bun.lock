@@ -51,6 +51,17 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/create-xenon-app": {
+      "name": "create-xenon-app",
+      "version": "0.0.1",
+      "bin": {
+        "create-xenon-app": "./dist/index.js",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.4.4",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/xenon": {
       "name": "xenon-cms",
       "version": "0.0.1",
@@ -600,6 +611,8 @@
     "confbox": ["confbox@0.1.8", "", {}, "sha512-RMtmw0iFkeR4YV+fUOSucriAQNb9g8zFR52MWCtl+cCZOFRNL6zeB395vPzFhEjjn4fMxXudmELnl/KF/WrK6w=="],
 
     "consola": ["consola@3.4.2", "", {}, "sha512-5IKcdX0nnYavi6G7TtOhwkYzyjfJlatbjMjuLSfE2kYT5pMDOilZ4OvMhi637CcDICTmz3wARPoyhqyX1Y+XvA=="],
+
+    "create-xenon-app": ["create-xenon-app@workspace:packages/create-xenon-app"],
 
     "csstype": ["csstype@3.2.3", "", {}, "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ=="],
 
