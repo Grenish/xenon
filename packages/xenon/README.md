@@ -2,6 +2,13 @@
 
 A lightweight, code-first headless CMS that lives inside your Next.js app.
 
+[![npm](https://img.shields.io/npm/v/xenon-cms)](https://www.npmjs.com/package/xenon-cms)
+[![npm downloads](https://img.shields.io/npm/dm/xenon-cms)](https://www.npmjs.com/package/xenon-cms)
+[![CI](https://github.com/Grenish/xenon/actions/workflows/ci.yml/badge.svg)](https://github.com/Grenish/xenon/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Grenish/xenon/blob/main/LICENSE)
+
+![The XenonCMS admin dashboard](https://raw.githubusercontent.com/Grenish/xenon/main/.github/assets/admin-dashboard.png)
+
 - **Code-first schema.** Collections and fields are TypeScript; document types are inferred from them.
 - **Next.js native.** A Local API for Server Components, a REST handler, and an admin UI mounted as one page.
 - **Postgres storage.** Any Postgres server, or embedded PGlite with zero setup for local development.
@@ -11,6 +18,21 @@ A lightweight, code-first headless CMS that lives inside your Next.js app.
 Requires Next.js 16+ and React 19+. ESM only.
 
 ## Install
+
+Add XenonCMS to an existing Next.js project. This writes the config, the API route and the admin page, then installs the dependencies:
+
+```bash
+npx xenon-cms init             # or: bunx xenon-cms init
+npx xenon-cms init --dry-run   # preview the changes first
+```
+
+Or start a new project with XenonCMS already set up:
+
+```bash
+npm create xenon-app@latest my-site
+```
+
+To wire it up by hand, install the package and a database driver:
 
 ```bash
 bun add xenon-cms          # or npm / pnpm / yarn
