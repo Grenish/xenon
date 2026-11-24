@@ -12,7 +12,7 @@ import {
 } from "xenon-cms/client";
 import type { Where } from "../../adapters/types";
 import { isXenonError } from "../../core/errors";
-import type { AnyCollection, SystemFields, XenonConfig, XenonUser } from "../../core/types";
+import { type AnyCollection, SYSTEM_KEYS, type SystemFields, UPLOAD_KEYS, type XenonConfig, type XenonUser } from "../../core/types";
 import { toClientCollection } from "../../ui/shared/client-config";
 import { type AccountSession, adminRoutes, type AdminUserInfo, type SettingsTab } from "../../ui/shared/services";
 import { resolveSecret } from "../../auth";
@@ -40,7 +40,21 @@ export interface AdminPageProps {
 }
 
 const PAGE_SIZE = 25;
+const SYSTEM_SORT_KEYS = new Set<string>(SYSTEM_KEYS);
+const UPLOAD_SORT_KEYS = new Set<string>(UPLOAD_KEYS);
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
+
+/** Validate a collection list sort parameter against declared fields (including hyphenated names) and system/upload keys. */
+export function resolveAdminSort(collection: AnyCollection, sort: string | undefined): string {
+  const raw = sort?.trim();
+  if (!raw) return "-updatedAt";
+  const key = raw.startsWith("-") ? raw.slice(1) : raw;
+  if (!key) return "-updatedAt";
+  if (SYSTEM_SORT_KEYS.has(key) || (collection.upload && UPLOAD_SORT_KEYS.has(key)) || Object.hasOwn(collection.fields, key)) {
+    return raw;
+  }
+  return "-updatedAt";
+}
 
 export async function canReadCollection(collection: AnyCollection, user: XenonUser): Promise<boolean> {
   const fn = collection.access?.read;
@@ -157,7 +171,7 @@ async function AdminPageContent({ config, action, params, searchParams }: AdminP
     const q = first(query.q)?.trim() ?? "";
     const status = first(query.status);
     const page = Math.max(1, Number.parseInt(first(query.page) ?? "1", 10) || 1);
-    const sort = first(query.sort) ?? "-updatedAt";
+    const sort = resolveAdminSort(collection, first(query.sort));
     const and: Where[] = [];
     if (status === "draft" || status === "published") and.push({ status: { equals: status } });
     if (q) {
@@ -170,7 +184,7 @@ async function AdminPageContent({ config, action, params, searchParams }: AdminP
         collection: slug,
         draft: true,
         where: and.length ? { and } : undefined,
-        sort: /^-?[A-Za-z0-9_]+$/.test(sort) ? sort : "-updatedAt",
+        sort,
         limit: PAGE_SIZE,
         page,
       });

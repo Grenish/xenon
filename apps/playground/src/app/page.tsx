@@ -17,7 +17,7 @@ export default async function HomePage() {
         {posts.length === 0 && <li className="py-6 text-[var(--muted)]">No published posts yet.</li>}
         {posts.map((post) => (
           <li key={post.id}>
-            <Link href={`/posts/${post.slug}`} className="group flex items-baseline justify-between gap-6 py-6">
+            <Link href={`/posts/${encodeURIComponent(post.slug ?? "")}`} className="group flex items-baseline justify-between gap-6 py-6">
               <span>
                 <span className="block text-lg font-medium group-hover:underline group-hover:underline-offset-4">{post.title}</span>
                 {post.excerpt && <span className="mt-1 block text-[var(--muted)]">{post.excerpt}</span>}

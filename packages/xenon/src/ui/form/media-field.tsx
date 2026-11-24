@@ -5,7 +5,22 @@ import { RiArrowDownLine, RiArrowUpLine, RiCloseLine, RiFileLine, RiImageAddLine
 import { Button } from "../components/button";
 import { useDocumentSearch } from "./use-document-search";
 import { MediaPicker } from "./media-picker";
+import type { DocSummary } from "../shared/services";
 import type { FieldInputProps } from "./field-types";
+
+/**
+ * Keeps every currently selected media ID (in order) even while summaries are still loading or if
+ * one item fails to resolve, so opening the picker in `hasMany` mode never wipes existing IDs.
+ */
+export function resolveSelectedMedia(ids: readonly string[], docs: readonly DocSummary[], loading = false): DocSummary[] {
+  const byId = new Map(docs.map((doc) => [doc.id, doc]));
+  return ids.map((id) => byId.get(id) ?? {
+    id,
+    title: loading ? "Loading…" : "Unavailable file",
+    status: "published",
+    updatedAt: "",
+  });
+}
 
 export function MediaField(props: FieldInputProps) {
   const [open, setOpen] = useState(false);
@@ -13,6 +28,7 @@ export function MediaField(props: FieldInputProps) {
   const collection = props.field.relationTo ?? "";
   const ids = props.field.hasMany ? Array.isArray(props.value) ? props.value as string[] : [] : typeof props.value === "string" ? [props.value] : [];
   const selected = useDocumentSearch(ids.length ? { collection, ids } : null, 0);
+  const selectedSummaries = resolveSelectedMedia(ids, selected.result.docs, selected.loading);
   const disabled = props.disabled || props.field.admin.readOnly;
   function reorder(index: number, step: number) {
     const next = [...ids];
@@ -31,7 +47,7 @@ export function MediaField(props: FieldInputProps) {
     })}</div> : <div className="xe:flex xe:items-center xe:gap-3 xe:rounded-lg xe:border xe:border-dashed xe:border-input xe:p-4"><RiImageAddLine className="xe:size-6 xe:text-muted-foreground" /><p className="xe:text-sm xe:text-muted-foreground">Choose a file from your media library.</p></div>}
     <Button ref={chooseButton} id={props.id} type="button" variant="outline" className="xe:self-start" disabled={disabled || !collection} aria-invalid={props["aria-invalid"]} onClick={() => setOpen(true)}>{ids.length ? "Change selection" : "Choose media"}</Button>
     {selected.error ? <p role="alert" className="xe:text-xs xe:text-destructive">{selected.error}</p> : null}
-    <MediaPicker returnFocus={chooseButton} open={open} onOpenChange={setOpen} collection={collection} multiple={props.field.hasMany} selected={selected.result.docs}
+    <MediaPicker returnFocus={chooseButton} open={open} onOpenChange={setOpen} collection={collection} multiple={props.field.hasMany} selected={selectedSummaries}
       onChoose={(docs) => props.onChange(props.field.hasMany ? docs.map((doc) => doc.id) : docs[0]?.id ?? null)} />
   </div>;
 }
