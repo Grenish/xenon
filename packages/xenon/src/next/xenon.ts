@@ -15,15 +15,19 @@ const instances = new WeakMap<XenonConfig, XenonInstance<XenonConfig>>();
 
 /**
  * Memoized Local API for Next.js: wires BetterAuth cookies into server actions and expires
- * Xenon cache tags after every write.
+ * Xenon cache tags after every write. Draft-only saves leave live content unchanged, so they
+ * expire just the document's own tag instead of the site-wide and collection tags.
  */
 export function getXenon<Cfg extends XenonConfig>(config: Cfg): XenonInstance<Cfg> {
   let xenon = instances.get(config);
   if (!xenon) {
     xenon = createXenon(config, {
       authPlugins: [nextCookies()],
-      onChange: ({ collection, id }) => {
-        for (const tag of [xenonTags.all, xenonTags.collection(collection), xenonTags.doc(collection, id)]) {
+      onChange: ({ collection, id, draft }) => {
+        const tags = draft
+          ? [xenonTags.doc(collection, id)]
+          : [xenonTags.all, xenonTags.collection(collection), xenonTags.doc(collection, id)];
+        for (const tag of tags) {
           try {
             revalidateTag(tag, { expire: 0 });
           } catch {

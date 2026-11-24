@@ -87,13 +87,15 @@ function ToolButton({ label, shortcut, icon: IconComponent, active, disabled, on
     <TooltipContent>{label}{shortcut ? <span className="xe:ml-2 xe:text-muted-foreground">{shortcut}</span> : null}</TooltipContent></Tooltip>;
 }
 
-function normalizeUrl(input: string): string | null {
+export function normalizeUrl(input: string): string | null {
   const value = input.trim();
   if (!value) return "";
+  if (/[\u0000-\u001f\u007f]/.test(value) || /^([/\\]{2}|\\)/.test(value)) return null;
   const candidate = /^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("/") || value.startsWith("#") ? value : `https://${value}`;
   if (candidate.startsWith("/") || candidate.startsWith("#")) return candidate;
   try {
     const url = new URL(candidate);
+    if ((url.protocol === "http:" || url.protocol === "https:") && !/^https?:\/\//i.test(candidate)) return null;
     return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? candidate : null;
   } catch { return null; }
 }

@@ -21,7 +21,33 @@ function objectData(input: unknown): RuntimeInput {
   return input as RuntimeInput;
 }
 
-async function parseBody(request: Request): Promise<{ data: RuntimeInput; file?: UploadFile }> {
+// Reserve room for document JSON, filenames, headers and multipart boundaries.
+const MULTIPART_OVERHEAD = 1024 * 1024;
+
+async function readForm(request: Request, maxFileSize?: number): Promise<FormData> {
+  let remaining = maxFileSize === undefined ? Infinity : maxFileSize + MULTIPART_OVERHEAD;
+  const limitMessage = "Multipart body exceeds the upload limit.";
+  if (Number(request.headers.get("content-length")) > remaining) {
+    void request.body?.cancel().catch(() => {});
+    throw new XenonError("PAYLOAD_TOO_LARGE", limitMessage);
+  }
+  try {
+    if (maxFileSize === undefined || !request.body) return await request.formData();
+    const bounded = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        remaining -= chunk.byteLength;
+        if (remaining < 0) throw new Error(limitMessage);
+        controller.enqueue(chunk);
+      },
+    }));
+    return await new Response(bounded, { headers: { "content-type": request.headers.get("content-type")! } }).formData();
+  } catch {
+    if (remaining < 0) throw new XenonError("PAYLOAD_TOO_LARGE", limitMessage);
+    throw new XenonError("BAD_REQUEST", "Invalid multipart body.");
+  }
+}
+
+async function parseBody(request: Request, maxFileSize?: number): Promise<{ data: RuntimeInput; file?: UploadFile }> {
   const contentType = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
   if (contentType === "application/json") {
     let input: unknown;
@@ -29,8 +55,7 @@ async function parseBody(request: Request): Promise<{ data: RuntimeInput; file?:
     return { data: objectData(input) };
   }
   if (contentType === "multipart/form-data") {
-    let form: FormData;
-    try { form = await request.formData(); } catch { throw new XenonError("BAD_REQUEST", "Invalid multipart body."); }
+    const form = await readForm(request, maxFileSize);
     const raw = form.get("data");
     if (raw !== null && typeof raw !== "string") throw new XenonError("BAD_REQUEST", "Multipart data must be a JSON string.");
     let input: unknown = {};
@@ -41,7 +66,10 @@ async function parseBody(request: Request): Promise<{ data: RuntimeInput; file?:
     const file = form.get("file");
     if (file === null) return { data };
     if (typeof file === "string") throw new XenonError("BAD_REQUEST", "Multipart file must be a File.");
-    return { data, file: { data: new Uint8Array(await file.arrayBuffer()), name: file.name, type: file.type || "application/octet-stream" } };
+    if (maxFileSize !== undefined && file.size > maxFileSize) {
+      throw new XenonError("PAYLOAD_TOO_LARGE", `File exceeds the maximum size of ${maxFileSize} bytes.`);
+    }
+    return { data, file: { data: file, name: file.name, type: file.type || "application/octet-stream" } };
   }
   throw new XenonError("UNSUPPORTED_MEDIA_TYPE", "Use application/json or multipart/form-data.");
 }
@@ -54,13 +82,13 @@ function errorResponse(error: unknown): Response {
   return Response.json({ errors: [{ message: "Internal server error." }] }, { status: 500 });
 }
 
-function fileHeaders(contentType: string, size: number): Headers {
+function fileHeaders(contentType: string, size: number, restricted: boolean): Headers {
   const headers = new Headers({
     "content-type": contentType,
     "content-length": String(size),
     "x-content-type-options": "nosniff",
     "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
-    "cache-control": "public, max-age=31536000, immutable",
+    "cache-control": restricted ? "private, no-store" : "public, max-age=31536000, immutable",
   });
   const mime = contentType.split(";")[0]!.trim().toLowerCase();
   if (mime === "image/svg+xml" || !(/^(image|video|audio)\//.test(mime) || mime === "application/pdf")) {
@@ -71,13 +99,13 @@ function fileHeaders(contentType: string, size: number): Headers {
 
 function requireTrustedOrigin(request: Request, config: XenonConfig): void {
   const origin = request.headers.get("origin");
-  if (origin) {
+  const publicURL = config.auth?.baseURL ?? process.env.XENON_URL ?? process.env.BETTER_AUTH_URL;
+  for (const trusted of [request.url, publicURL, ...(config.auth?.trustedOrigins ?? [])]) {
+    if (!trusted) continue;
     try {
-      const incoming = new URL(origin);
-      if (incoming.origin === origin && [new URL(request.url).origin, ...(config.auth?.trustedOrigins ?? [])].some((trusted) => {
-        try { return new URL(trusted).origin === incoming.origin; } catch { return false; }
-      })) return;
-    } catch { /* Malformed, opaque, or multiple origins are not trusted. */ }
+      const url = new URL(trusted);
+      if ((url.protocol === "https:" || url.protocol === "http:") && origin === url.origin) return;
+    } catch { /* An invalid configured URL cannot establish trust. */ }
   }
   throw new XenonError("FORBIDDEN", "Cookie-authenticated writes require a trusted Origin header.");
 }
@@ -135,6 +163,7 @@ export function createApiHandler<Cfg extends XenonConfig>(config: Cfg, options?:
   const xenon = (options?.xenon ?? getXenon(config)) as XenonInstance;
 
   async function handle(request: Request, context: RouteContext): Promise<Response> {
+    let restrictedFile = false;
     try {
       const { slug: segments } = await context.params;
       const [slug, id, action] = segments ?? [];
@@ -145,11 +174,23 @@ export function createApiHandler<Cfg extends XenonConfig>(config: Cfg, options?:
       }
       if (slug === "_files" && request.method === "GET" && segments.length > 1) {
         const key = segments.slice(1).join("/");
-        try { keySegments(key); } catch { throw new XenonError("BAD_REQUEST", "Unsafe file key."); }
+        let parts: string[];
+        try { parts = keySegments(key); } catch { throw new XenonError("BAD_REQUEST", "Unsafe file key."); }
+        const owner = xenon.getCollection(parts[0]!);
+        if (!owner?.upload || parts.length < 2) throw new XenonError("NOT_FOUND", "File not found.");
+        if (owner.access?.read) {
+          restrictedFile = true;
+          const user = await xenon.getUser(request.headers);
+          if (!await owner.access.read({ user })) {
+            throw user
+              ? new XenonError("FORBIDDEN", `You are not allowed to read "${owner.slug}".`)
+              : new XenonError("UNAUTHORIZED", "Authentication required.");
+          }
+        }
         const file = await xenon.readFile(key);
         if (!file) throw new XenonError("NOT_FOUND", "File not found.");
         const body = file.body instanceof Uint8Array ? new Uint8Array(file.body) : file.body;
-        return new Response(body, { headers: fileHeaders(file.contentType, file.size) });
+        return new Response(body, { headers: fileHeaders(file.contentType, file.size, restrictedFile) });
       }
       const collection = slug ? xenon.getCollection(slug) : undefined;
       if (!collection || segments.length > 3 || (action && (action !== "unpublish" || request.method !== "POST"))) {
@@ -161,6 +202,7 @@ export function createApiHandler<Cfg extends XenonConfig>(config: Cfg, options?:
       }
       const shared = { collection: slug!, user, overrideAccess: false };
       const params = new URL(request.url).searchParams;
+      const maxFileSize = typeof collection.upload === "object" ? collection.upload.maxFileSize : undefined;
       switch (request.method) {
         case "GET": {
           if (!id) return Response.json(await xenon.find({ ...shared, ...parseQuery(params, collection) }));
@@ -171,11 +213,11 @@ export function createApiHandler<Cfg extends XenonConfig>(config: Cfg, options?:
         case "POST": {
           if (id && action === "unpublish") return Response.json(await xenon.unpublish({ ...shared, id }));
           if (id) throw new XenonError("NOT_FOUND", "Route not found.");
-          return Response.json(await xenon.create({ ...shared, ...await parseBody(request), draft: parseDraft(params) }), { status: 201 });
+          return Response.json(await xenon.create({ ...shared, ...await parseBody(request, maxFileSize), draft: parseDraft(params) }), { status: 201 });
         }
         case "PATCH": {
           if (!id) throw new XenonError("NOT_FOUND", "Route not found.");
-          return Response.json(await xenon.update({ ...shared, id, ...await parseBody(request), draft: parseDraft(params), expectedUpdatedAt: parseIfMatch(request) }));
+          return Response.json(await xenon.update({ ...shared, id, ...await parseBody(request, maxFileSize), draft: parseDraft(params), expectedUpdatedAt: parseIfMatch(request) }));
         }
         case "DELETE": {
           if (!id) throw new XenonError("NOT_FOUND", "Route not found.");
@@ -184,7 +226,9 @@ export function createApiHandler<Cfg extends XenonConfig>(config: Cfg, options?:
         default: throw new XenonError("NOT_FOUND", "Route not found.");
       }
     } catch (error) {
-      return errorResponse(error);
+      const response = errorResponse(error);
+      if (restrictedFile) response.headers.set("cache-control", "private, no-store");
+      return response;
     }
   }
 

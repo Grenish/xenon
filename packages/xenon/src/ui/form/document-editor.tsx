@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { RiMoreLine, RiDeleteBinLine, RiEditLine, RiEyeOffLine, RiLockLine, RiSave3Line } from "@remixicon/react";
 import { StatusBadge, timeAgo, formatDate } from "../admin/format";
+import { registerDirtyBlocker } from "../admin/dirty-guard";
 import { useShellBar } from "../admin/shell-bar";
 import { AvatarStack, displayName, type DocPresence, PersonAvatar, useDocPresence } from "../admin/presence";
 import { Alert, AlertDescription, AlertTitle } from "../components/alert";
@@ -22,7 +23,7 @@ import { RichTextEditor } from "./rich-text-editor";
 import { Kbd } from "../components/kbd";
 import { richTextToPlainText } from "../../react/rich-text";
 import type { RichTextDocument } from "../../core/types";
-import { documentTitle, initialData, validateFields } from "./model";
+import { documentTitle, initialData, normalizeFormData, validateFields } from "./model";
 
 export function DocumentEditor({ collection, doc }: { collection: ClientCollection; doc: AdminDoc | null }) {
   const { basePath, services } = useAdmin();
@@ -35,10 +36,11 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const [formError, setFormError] = useState("");
   const [pending, setPending] = useState<"save" | "publish" | "unpublish" | "remove" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [leaveTo, setLeaveTo] = useState<string | null>(null);
+  const [pendingLeave, setPendingLeave] = useState<{ proceed: () => void } | null>(null);
   /** A save was refused because someone saved a newer version: theirs, and which save we attempted. */
   const [conflict, setConflict] = useState<{ latest: AdminDoc; draft: boolean } | null>(null);
   const busy = useRef(false);
+  const leaving = useRef(false);
   const alertRef = useRef<HTMLDivElement>(null);
   const actionsButton = useRef<HTMLButtonElement>(null);
   const isDraftsEnabled = collection.drafts && !collection.upload;
@@ -56,6 +58,16 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
 
   useEffect(() => {
     if (!dirty) return;
+    leaving.current = false;
+    const currentHref = location.pathname + location.search + location.hash;
+    const priorState = window.history.state;
+    const hadGuard = Boolean(priorState && typeof priorState === "object" && (priorState as { __xeDirtyGuard?: boolean }).__xeDirtyGuard);
+    const guardedState =
+      priorState && typeof priorState === "object"
+        ? { ...(priorState as Record<string, unknown>), __xeDirtyGuard: true }
+        : { __xeDirtyGuard: true };
+    if (!hadGuard) window.history.pushState(guardedState, "", currentHref);
+
     const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     const click = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -65,12 +77,42 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
       if (destination.origin === location.origin && destination.pathname === location.pathname && destination.search === location.search) return;
       // In-app links: ask with our own dialog instead of the browser's confirm().
       event.preventDefault(); event.stopPropagation();
-      setLeaveTo(destination.origin === location.origin ? destination.pathname + destination.search + destination.hash : destination.href);
+      const href = destination.origin === location.origin ? destination.pathname + destination.search + destination.hash : destination.href;
+      setPendingLeave({
+        proceed: () => {
+          if (/^https?:/i.test(href)) location.assign(href);
+          else if (!hadGuard) router.replace(href);
+          else router.push(href);
+        },
+      });
     };
+    const popState = () => {
+      if (leaving.current) return;
+      window.history.pushState(guardedState, "", currentHref);
+      setPendingLeave({
+        proceed: () => {
+          window.history.go(-2);
+        },
+      });
+    };
+    const unregister = registerDirtyBlocker({
+      confirm: (proceed) => setPendingLeave({ proceed: () => proceed(!hadGuard) }),
+    });
     window.addEventListener("beforeunload", beforeUnload);
+    window.addEventListener("popstate", popState);
     document.addEventListener("click", click, true);
-    return () => { window.removeEventListener("beforeunload", beforeUnload); document.removeEventListener("click", click, true); };
-  }, [dirty]);
+    return () => {
+      unregister();
+      window.removeEventListener("beforeunload", beforeUnload);
+      window.removeEventListener("popstate", popState);
+      document.removeEventListener("click", click, true);
+      const onSamePage = location.pathname + location.search + location.hash === currentHref;
+      const onGuard = Boolean(window.history.state && typeof window.history.state === "object" && (window.history.state as { __xeDirtyGuard?: boolean }).__xeDirtyGuard);
+      if (!leaving.current && !hadGuard && onSamePage && onGuard) {
+        window.history.back();
+      }
+    };
+  }, [dirty, router]);
 
   function showError(result: Extract<ActionResult<unknown>, { ok: false }>) {
     const fields: Record<string, string> = {};
@@ -101,8 +143,9 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     busy.current = true;
     setPending(draft ? "save" : "publish");
     try {
-      const result = collection.upload && file ? await services.upload({ collection: collection.slug, id: current?.id, file, data, expectedUpdatedAt }) :
-        await services.save({ collection: collection.slug, id: current?.id, data, draft, expectedUpdatedAt });
+      const payload = normalizeFormData(collection.fields, data);
+      const result = collection.upload && file ? await services.upload({ collection: collection.slug, id: current?.id, file, data: payload, expectedUpdatedAt }) :
+        await services.save({ collection: collection.slug, id: current?.id, data: payload, draft, expectedUpdatedAt });
       if (!result.ok) {
         if (current && isStale(result)) {
           // Someone saved after we loaded: fetch their version (one read) and let the user decide.
@@ -112,6 +155,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
         showError(result);
         return;
       }
+      if (!current) leaving.current = true;
       accept(result.data);
       toast.success(draft ? "Draft saved" : isDraftsEnabled ? "Published" : "Changes saved");
       if (!current) router.replace(adminRoutes.edit(basePath, collection.slug, result.data.id));
@@ -139,6 +183,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     try {
       const result = await services.remove({ collection: collection.slug, id: current.id });
       if (!result.ok) { showError(result); return; }
+      leaving.current = true;
       setConfirmDelete(false); setBaseline(JSON.stringify(data)); setFile(null);
       toast.success(`${collection.labels.singular} deleted`);
       router.replace(adminRoutes.list(basePath, collection.slug));
@@ -235,7 +280,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
         {titleField ? <div className="xe:flex xe:flex-col xe:gap-1.5">
           <TitleInput id={`${canvasId}-title`} label={titleField.label} value={typeof data[titleField.name] === "string" ? data[titleField.name] as string : ""}
             placeholder={titleField.admin.placeholder ?? `Untitled ${collection.labels.singular.toLowerCase()}`} maxLength={titleField.maxLength} disabled={locked || titleField.admin.readOnly}
-            error={fieldErrors[titleField.name]} onChange={(value) => change(titleField.name, value)}
+            error={fieldErrors[titleField.name]} onChange={(value) => change(titleField.name, value === "" && titleField.defaultValue !== "" ? null : value)}
             onEnter={() => document.getElementById(`${canvasId}-body`)?.focus()} />
         </div> : null}
         {bodyField ? <div className="xe:mt-5 xe:flex xe:flex-col xe:gap-1.5">
@@ -285,10 +330,10 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
         <AlertDialogAction variant="destructive" onClick={() => { const c = conflict; setConflict(null); if (c) void save(c.draft, c.latest.updatedAt); }}>Overwrite with mine</AlertDialogAction>
       </AlertDialogFooter>
     </AlertDialogContent></AlertDialog>
-    <AlertDialog open={leaveTo !== null} onOpenChange={(open) => { if (!open) setLeaveTo(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle><AlertDialogDescription>You have changes to “{title}” that haven’t been saved. If you leave now, they’ll be lost.</AlertDialogDescription></AlertDialogHeader>
+    <AlertDialog open={pendingLeave !== null} onOpenChange={(open) => { if (!open) setPendingLeave(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle><AlertDialogDescription>You have changes to “{title}” that haven’t been saved. If you leave now, they’ll be lost.</AlertDialogDescription></AlertDialogHeader>
       <AlertDialogFooter><AlertDialogCancel>Keep editing</AlertDialogCancel><AlertDialogAction variant="destructive" onClick={() => {
-        const href = leaveTo; setLeaveTo(null); setBaseline(JSON.stringify(data)); setFile(null);
-        if (href) { if (/^https?:/i.test(href)) location.assign(href); else router.push(href); }
+        const next = pendingLeave; leaving.current = true; setPendingLeave(null); setBaseline(JSON.stringify(data)); setFile(null);
+        next?.proceed();
       }}>Discard changes</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent></AlertDialog>
     <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!pending) setConfirmDelete(open); }}><AlertDialogContent finalFocus={actionsButton}><AlertDialogHeader><AlertDialogTitle>Delete this {collection.labels.singular.toLowerCase()}?</AlertDialogTitle><AlertDialogDescription>“{title}” will be permanently deleted. This can’t be undone.</AlertDialogDescription></AlertDialogHeader>

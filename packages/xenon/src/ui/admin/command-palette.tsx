@@ -21,6 +21,7 @@ import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
 import { adminRoutes, type DocSummary } from "../shared/services";
 import { StatusBadge } from "./format";
+import { guardNavigation } from "./dirty-guard";
 import { useAdminRuntime } from "./runtime";
 import { collectionIcon } from "./shell";
 
@@ -64,7 +65,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
   const go = (href: string) => () => {
     onOpenChange(false);
-    router.push(href);
+    guardNavigation((replace) => (replace ? router.replace(href) : router.push(href)));
   };
 
   const staticItems = useMemo<Item[]>(() => {
@@ -111,7 +112,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
           status: d.status,
           run: () => {
             onOpenChange(false);
-            router.push(adminRoutes.edit(basePath, c.slug, d.id));
+            const href = adminRoutes.edit(basePath, c.slug, d.id);
+            guardNavigation((replace) => (replace ? router.replace(href) : router.push(href)));
           },
         }));
       }),

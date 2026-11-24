@@ -1,14 +1,16 @@
 import type { BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, gte, or, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import {
+  type CollectionSummary,
   type CreateRecordInput,
   type DatabaseAdapter,
   type DocumentRecord,
   type FindArgs,
   type PaginatedResult,
   SlugConflictError,
+  type SummarizeArgs,
   type UpdateRecordInput,
   type UpdateRecordOptions,
   UpdateConflictError,
@@ -26,8 +28,12 @@ interface Connection {
  * Clients are cached on globalThis so Next.js dev HMR (which re-evaluates the config module) reuses
  * one pool per connection string and never opens the same PGlite data directory twice.
  */
-const globalCache = globalThis as typeof globalThis & { __xenonPg?: Map<string, Promise<Connection>> };
+const globalCache = globalThis as typeof globalThis & {
+  __xenonPg?: Map<string, Promise<Connection>>;
+  __xenonPgLeases?: WeakMap<Connection, number>;
+};
 const clients: Map<string, Promise<Connection>> = (globalCache.__xenonPg ??= new Map());
+const leases = (globalCache.__xenonPgLeases ??= new WeakMap<Connection, number>());
 
 export function cached(key: string | null, open: () => Promise<Connection>): Promise<Connection> {
   if (key === null) return open();
@@ -39,13 +45,35 @@ export function cached(key: string | null, open: () => Promise<Connection>): Pro
     });
     clients.set(key, conn);
   }
-  return conn.then((c) => ({
-    db: c.db,
-    close: async () => {
-      if (clients.get(key) === conn) clients.delete(key);
-      await c.close();
-    },
-  }));
+  return conn.then((c) => {
+    leases.set(c, (leases.get(c) ?? 0) + 1);
+    let released = false;
+    return {
+      db: c.db,
+      close: async () => {
+        if (released) return;
+        released = true;
+        const remaining = leases.get(c)! - 1;
+        leases.set(c, remaining);
+        if (remaining > 0) return;
+        if (clients.get(key) === conn) clients.delete(key);
+        await c.close();
+      },
+    };
+  });
+}
+
+// One server-side statement keeps the advisory lock through every DDL command,
+// including on supplied Drizzle drivers without interactive transactions.
+async function initializeSchema(db: Connection["db"], statements: readonly string[]) {
+  const body = `BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('xenon-cms'), hashtext('schema-init'));
+    ${statements.join(";\n")};
+  END`;
+  // BetterAuth identifiers can contain dollar-quote delimiters.
+  let tag = "xenon_ddl";
+  while (body.includes(`$${tag}$`)) tag += "_";
+  await db.execute(sql.raw(`DO $${tag}$${body}$${tag}$`));
 }
 
 /** Walks `cause` chains (drizzle wraps driver errors) looking for a Postgres unique violation. */
@@ -104,8 +132,8 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
 
     init() {
       initPromise ??= (async () => {
-        conn = await connect();
-        for (const stmt of DOCUMENTS_DDL) await conn.db.execute(sql.raw(stmt));
+        conn ??= await connect();
+        await initializeSchema(conn.db, DOCUMENTS_DDL);
       })().catch((err) => {
         initPromise = null;
         throw err;
@@ -203,8 +231,58 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
       return rows.length > 0;
     },
 
+    async summarize(args: SummarizeArgs): Promise<CollectionSummary> {
+      // Aggregates in SQL; only a handful of rows (recent / attention / images) carry document bodies.
+      const inCollection = eq(t.collection, args.collection);
+      const working = sql`coalesce(${t.draftData}, ${t.data})`;
+      const attention = sql`(${t.status} <> 'published' or ${t.draftData} is not null)`;
+      const newest = sql`${t.updatedAt} desc, ${t.id} collate "C" asc`;
+      const since = args.since;
+      const [totals, activity, recent, oldest, images] = await Promise.all([
+        db().select({
+          total: count(),
+          published: sql<number>`count(*) filter (where ${t.status} = 'published')`,
+          drafts: sql<number>`count(*) filter (where ${t.status} <> 'published')`,
+          changed: sql<number>`count(*) filter (where ${t.status} = 'published' and ${t.draftData} is not null)`,
+          attention: sql<number>`count(*) filter (where ${attention})`,
+          bytes: sql<string | number | null>`sum(case when jsonb_typeof(${working} -> 'filesize') = 'number' then (${working} ->> 'filesize')::numeric end)`,
+        }).from(t).where(inCollection),
+        db().select({ createdAt: t.createdAt, updatedAt: t.updatedAt }).from(t)
+          .where(and(inCollection, or(gte(t.updatedAt, since), gte(t.createdAt, since)))),
+        args.recent > 0 ? db().select().from(t).where(inCollection).orderBy(newest).limit(args.recent) : [],
+        args.attention > 0
+          ? db().select().from(t).where(and(inCollection, attention)).orderBy(sql`${t.updatedAt} asc, ${t.id} collate "C" asc`).limit(args.attention)
+          : [],
+        args.images > 0
+          ? db().select().from(t).where(and(inCollection, sql`(${working} ->> 'mimeType') like 'image/%'`)).orderBy(newest).limit(args.images)
+          : [],
+      ]);
+      const row = totals[0];
+      const edited: Date[] = [];
+      const created: Date[] = [];
+      for (const r of activity) {
+        const updatedAt = new Date(r.updatedAt);
+        const createdAt = new Date(r.createdAt);
+        if (updatedAt >= since) edited.push(updatedAt);
+        if (createdAt >= since) created.push(createdAt);
+      }
+      return {
+        total: Number(row?.total ?? 0),
+        published: Number(row?.published ?? 0),
+        drafts: Number(row?.drafts ?? 0),
+        changed: Number(row?.changed ?? 0),
+        bytes: Number(row?.bytes ?? 0),
+        edited,
+        created,
+        recent: (recent as Row[]).map(toRecord),
+        attention: (oldest as Row[]).map(toRecord),
+        attentionTotal: Number(row?.attention ?? 0),
+        images: (images as Row[]).map(toRecord),
+      };
+    },
+
     async getAuthDatabase(authOptions: BetterAuthOptions) {
-      for (const stmt of authDDL(authOptions)) await db().execute(sql.raw(stmt));
+      await initializeSchema(db(), authDDL(authOptions));
       return drizzleAdapter(db(), { provider: "pg", schema: authDrizzleSchema(authOptions) });
     },
 

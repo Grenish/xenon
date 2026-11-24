@@ -65,11 +65,23 @@ function jsonContains(x: SQL, v: unknown): SQL {
   return sql`(${str} or ${arr})`;
 }
 
-function jsonOps(x: SQL, ops: WhereOperators): SQL[] {
+const isScalar = (v: unknown): v is string | number | boolean =>
+  typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v));
+
+/**
+ * `data @> {"key": v}` — equivalent to `data -> key = v` for a scalar `v` (a nested array never
+ * contains a bare scalar), but able to use the `jsonb_path_ops` GIN index on published `data`.
+ */
+function jsonContainment(key: string, v: unknown): SQL | null {
+  return isScalar(v) ? sql`(${t.data} @> ${jsonParam({ [key]: v })})` : null;
+}
+
+function jsonOps(x: SQL, ops: WhereOperators, key: string | null): SQL[] {
+  const eq = (v: unknown): SQL => (key !== null && jsonContainment(key, v)) || jsonEquals(x, v);
   const parts: SQL[] = [];
-  if ("equals" in ops) parts.push(jsonEquals(x, ops.equals));
+  if ("equals" in ops) parts.push(eq(ops.equals));
   if ("not_equals" in ops) parts.push(not(jsonEquals(x, ops.not_equals)));
-  if (ops.in) parts.push(or(ops.in.map((v) => jsonEquals(x, v))));
+  if (ops.in) parts.push(or(ops.in.map(eq)));
   if (ops.not_in) parts.push(not(or(ops.not_in.map((v) => jsonEquals(x, v)))));
   if ("contains" in ops) parts.push(jsonContains(x, ops.contains));
   if (ops.gt !== undefined) parts.push(jsonCompare(x, ">", ops.gt));
@@ -145,7 +157,9 @@ export function compileWhere(where: Where | undefined, source: FindArgs["source"
     }
     const ops = value as WhereOperators;
     const system = Object.hasOwn(SYSTEM_COLUMNS, key) ? SYSTEM_COLUMNS[key] : undefined;
-    parts.push(and(system ? columnOps(system.col, system.kind, ops) : jsonOps(sql`(${src} -> ${key})`, ops)));
+    // Only published reads address the bare `data` column the GIN index covers.
+    const indexKey = source === "draft" ? null : key;
+    parts.push(and(system ? columnOps(system.col, system.kind, ops) : jsonOps(sql`(${src} -> ${key})`, ops, indexKey)));
   }
   return and(parts);
 }
@@ -168,5 +182,6 @@ export function compileOrderBy(sort: string | undefined, source: FindArgs["sourc
   return sql`${jsonMissing(x)} asc,
     case when jsonb_typeof(${x}) = 'number' then (${x})::numeric end ${dir},
     case when jsonb_typeof(${x}) = 'string' then (${x} #>> '{}') end collate "C" ${dir},
+    case when jsonb_typeof(${x}) = 'boolean' then (${x})::boolean end ${dir},
     ${tie}`;
 }

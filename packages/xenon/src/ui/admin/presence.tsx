@@ -61,9 +61,61 @@ interface LiveState {
 const docStore = createStore<DocRegistration | null>(null);
 const liveStore = createStore<LiveState>({ snapshot: null, at: "", status: "connecting" });
 const kick = { current: null as null | (() => void) };
+export interface PresenceSession {
+  apiPath: string;
+  getToken: () => string | null;
+  stop: () => void;
+}
+
+let activeSession: PresenceSession | null = null;
 let tabId: string | null = null;
 const tab = () => (tabId ??= typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`);
 const locationKey = (l: PresenceLocation | null) => (l ? (l.id ? `${l.collection}/${l.id}` : l.collection) : "");
+
+/** Registers the active heartbeat session so `leavePresence()` can release it immediately on sign-out. */
+export function registerPresenceSession(session: PresenceSession): () => void {
+  activeSession = session;
+  return () => {
+    if (activeSession === session) activeSession = null;
+  };
+}
+
+/** Returns the current client presence tab id (used by heartbeat and leave requests). */
+export function presenceTabId(): string {
+  return tab();
+}
+
+/**
+ * Immediately clears this tab's presence entry and releases any edit lock (called on sign-out).
+ * Stops future heartbeats, clears client presence state, and posts `{ leave: true }` with `keepalive`.
+ */
+export async function leavePresence(): Promise<void> {
+  const session = activeSession;
+  activeSession = null;
+  kick.current = null;
+  docStore.set(null);
+  liveStore.set({ snapshot: null, at: "", status: "off" });
+  if (!session) return;
+  const token = session.getToken();
+  session.stop();
+  if (!token) return;
+  const url = `${session.apiPath}/_presence`;
+  const payload = JSON.stringify({ token, tab: tab(), leave: true });
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: payload,
+      cache: "no-store",
+      credentials: "omit",
+      keepalive: true,
+    });
+  } catch {
+    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+      navigator.sendBeacon(url, new Blob([payload], { type: "text/plain" }));
+    }
+  }
+}
 
 function tokenExpiry(token: string | null): number {
   try {
@@ -148,7 +200,7 @@ export function PresenceHeartbeat({ token }: { token: string | null }) {
           liveStore.set({ snapshot: null, at: "", status: "off" });
           return;
         }
-        if (res.ok) {
+        if (res.ok && !stopped) {
           liveStore.set({ snapshot: (await res.json()) as PresenceSnapshot, at: locationKey(sent.location), status: "live" });
           // A takeover is a one-off request; afterwards the tab simply keeps editing.
           const reg = docStore.get();
@@ -158,13 +210,21 @@ export function PresenceHeartbeat({ token }: { token: string | null }) {
         // Offline or server restarting: keep the last snapshot and try again on the next tick.
       } finally {
         inflight = false;
-        if (again) { again = false; void beat(); } else schedule();
+        if (!stopped && again) { again = false; void beat(); } else schedule();
       }
     }
+
+    const stopSession = () => {
+      stopped = true;
+      clearTimeout(timer);
+      tokenRef.current = null;
+    };
+    const unregisterSession = registerPresenceSession({ apiPath, getToken: () => tokenRef.current, stop: stopSession });
 
     // Coming back to the tab refreshes presence, but flapping visibility never causes a burst.
     const onVisibility = () => (document.visibilityState === "visible" && Date.now() - last > 2_000 ? void beat() : schedule());
     const onPageHide = () => {
+      if (stopped || !tokenRef.current) return;
       const payload = JSON.stringify({ token: tokenRef.current, tab: tab(), leave: true });
       navigator.sendBeacon?.(url, new Blob([payload], { type: "text/plain" }));
     };
@@ -176,6 +236,7 @@ export function PresenceHeartbeat({ token }: { token: string | null }) {
     return () => {
       stopped = true;
       clearTimeout(timer);
+      unregisterSession();
       if (kick.current) kick.current = null;
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);

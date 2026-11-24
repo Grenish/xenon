@@ -20,6 +20,8 @@ export interface XenonChangeEvent {
   collection: string;
   id: string;
   op: XenonOperation | "unpublish";
+  /** `true` when the write only touched the draft (`draft: true` save): published content is unchanged. */
+  draft?: boolean;
 }
 
 export interface CreateXenonOptions {

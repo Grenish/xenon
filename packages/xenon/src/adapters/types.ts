@@ -111,6 +111,43 @@ export class SlugConflictError extends Error {
   }
 }
 
+export interface SummarizeArgs {
+  collection: string;
+  /** Start of the activity window for `edited` / `created`. */
+  since: Date;
+  /** How many most recently edited records to return in `recent`. */
+  recent: number;
+  /** How many records needing attention to return, oldest edit first. */
+  attention: number;
+  /** How many most recently edited image records (working-copy `mimeType` `image/*`) to return. */
+  images: number;
+}
+
+/**
+ * Admin dashboard figures for one collection. The "working copy" of a record is `draftData ?? data`.
+ * A record "needs attention" when it is a draft or published with a pending `draftData`.
+ */
+export interface CollectionSummary {
+  total: number;
+  published: number;
+  drafts: number;
+  /** Published records with a pending `draftData`. */
+  changed: number;
+  /** Sum of numeric working-copy `filesize` values. */
+  bytes: number;
+  /** `updatedAt` of every record edited at or after `since`. */
+  edited: Date[];
+  /** `createdAt` of every record created at or after `since`. */
+  created: Date[];
+  /** Newest `updatedAt` first, ties by `id`. */
+  recent: DocumentRecord[];
+  /** Oldest `updatedAt` first, ties by `id`. */
+  attention: DocumentRecord[];
+  attentionTotal: number;
+  /** Newest `updatedAt` first, ties by `id`. */
+  images: DocumentRecord[];
+}
+
 export interface DatabaseAdapter {
   readonly name: string;
   /** Idempotent: create tables/indexes if missing. Called once before first use. */
@@ -132,6 +169,11 @@ export interface DatabaseAdapter {
    * described by `authOptions` exist. Called once, after `init()`.
    */
   getAuthDatabase(authOptions: BetterAuthOptions): Promise<NonNullable<BetterAuthOptions["database"]>>;
+  /**
+   * Optional fast path for the admin dashboard (aggregates in the database instead of loading every
+   * document). When absent, Xenon computes the same figures with `summarizeRecords` over `find`.
+   */
+  summarize?(args: SummarizeArgs): Promise<CollectionSummary>;
   /** Release connections (tests, scripts). */
   close?(): Promise<void>;
 }

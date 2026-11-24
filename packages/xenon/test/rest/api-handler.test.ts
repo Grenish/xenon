@@ -16,13 +16,17 @@ const posts = defineCollection({ slug: "posts", slugFrom: "title", fields: {
 const assets = defineCollection({ slug: "media", upload: { mimeTypes: ["text/*", "image/png"], maxFileSize: 1024 }, fields: {
   alt: text({ required: true }),
 } });
+const privateAssets = defineCollection({
+  slug: "private-media", upload: true, fields: { alt: text() },
+  access: { read: async ({ user }) => user?.role === "admin" },
+});
 const locked = defineCollection({ slug: "locked", fields: { title: text() }, access: {
   read: () => false, create: ({ user }) => user?.role === "admin", update: () => false, delete: () => false,
 } });
 
 function makeConfig(directory: string) {
   return defineConfig({
-    collections: [posts, assets, locked], db: memoryAdapter(), storage: new LocalStorageAdapter({ directory }),
+    collections: [posts, assets, privateAssets, locked], db: memoryAdapter(), storage: new LocalStorageAdapter({ directory }),
     auth: {
       secret: "rest-test-secret-abcdefghijklmnopqrstuvwxyz-0123456789", baseURL: "http://localhost:3000",
       trustedOrigins: ["https://trusted.example"],
@@ -189,6 +193,50 @@ describe("REST handler with real Local API, auth, memory database and local file
     expect((await request("GET", "_files/missing.txt")).status).toBe(404);
   });
 
+  test("files with a read rule check the caller before opening storage and are never cached", async () => {
+    const uploaded = await request("POST", "private-media", uploadForm(), "admin-key");
+    expect(uploaded.status).toBe(201);
+    const path = (await uploaded.json()).url.slice("/api/xenon/".length);
+    const read = spyOn(xenon, "readFile");
+    try {
+      for (const [key, status] of [[undefined, 401], ["test-key", 403]] as const) {
+        const denied = await request("GET", path, undefined, key);
+        expect(denied.status).toBe(status);
+        expect(denied.headers.get("cache-control")).toBe("private, no-store");
+      }
+      for (const prefix of ["unknown", "posts"]) {
+        expect((await request("GET", `_files/${prefix}/example.txt`)).status).toBe(404);
+      }
+      expect(read).not.toHaveBeenCalled();
+      const allowed = await request("GET", path, undefined, "admin-key");
+      expect(allowed.status).toBe(200);
+      expect(allowed.headers.get("cache-control")).toBe("private, no-store");
+      expect(await allowed.text()).toBe("hello file");
+    } finally { read.mockRestore(); }
+  });
+
+  test("enforces the exact file size on create and replacement without modifying the previous file", async () => {
+    const original = "x".repeat(1024);
+    const created = await request("POST", "media", uploadForm(original), "test-key");
+    expect(created.status).toBe(201);
+    const { id, url } = await created.json();
+    expect((await request("PATCH", `media/${id}`, uploadForm(original + "x"), "test-key")).status).toBe(413);
+    expect(await (await request("GET", url.slice("/api/xenon/".length))).text()).toBe(original);
+  });
+
+  test("rejects an oversized declared multipart body before parsing it", async () => {
+    const response = await request("POST", "media", uploadForm(), "test-key", { "content-length": "10000000" });
+    expect(response.status).toBe(413);
+  });
+
+  test("also bounds the actual multipart body with absent or understated Content-Length", async () => {
+    const form = uploadForm();
+    form.set("data", JSON.stringify({ alt: "x".repeat(2 * 1024 * 1024) }));
+    for (const headers of [{}, { "content-length": "32" }] as HeadersInit[]) {
+      expect((await request("POST", "media", form, "test-key", headers)).status).toBe(413);
+    }
+  });
+
   test("multipart errors return 400; omitted data becomes an empty object", async () => {
     const form = uploadForm(); form.set("data", "not JSON");
     expect((await request("POST", "media", form, "test-key")).status).toBe(400);
@@ -200,7 +248,7 @@ describe("REST handler with real Local API, auth, memory database and local file
     expect((await request("POST", "posts?draft=true", draft, "test-key")).status).toBe(201);
   });
 
-  test("auth routes delegate to BetterAuth and session cookies authorize later requests", async () => {
+  async function signInAdmin() {
     const auth = (await xenon.getAuth())!;
     const createUser = auth.api.createUser as (args: { body: { email: string; password: string; name: string; role: "admin" } }) => Promise<unknown>;
     await createUser({ body: { email: "admin@example.test", password: "secret-password-123", name: "Admin", role: "admin" } });
@@ -208,6 +256,11 @@ describe("REST handler with real Local API, auth, memory database and local file
     expect(login.status).toBe(200);
     const cookies = login.headers.getSetCookie().map((cookie) => cookie.split(";")[0]).join("; ");
     expect(cookies).toContain("session_token");
+    return cookies;
+  }
+
+  test("auth routes delegate to BetterAuth and session cookies authorize later requests", async () => {
+    const cookies = await signInAdmin();
     const write = await request("POST", "posts", { title: "Session post" }, undefined, { cookie: cookies, origin: "http://localhost:3000" });
     expect(write.status).toBe(201);
     const invalidBearer = await request("POST", "posts", { title: "No fallback" }, "wrong-key", { cookie: cookies });
@@ -233,6 +286,38 @@ describe("REST handler with real Local API, auth, memory database and local file
     expect((await request("POST", "auth/sign-up/email", { email: "new@example.test", password: "secret-password-123", name: "New" })).status).not.toBe(200);
   });
 
+  test("cookie-backed proxy uploads trust the configured public origin with BetterAuth precedence", async () => {
+    config.auth!.baseURL = "https://cms.example.com";
+    const cookie = await signInAdmin();
+    const previous = { XENON_URL: process.env.XENON_URL, BETTER_AUTH_URL: process.env.BETTER_AUTH_URL };
+    const upload = (origin: string) => request("POST", "media", uploadForm(), undefined, {
+      cookie, origin, "x-forwarded-host": "untrusted.example",
+    });
+    try {
+      process.env.BETTER_AUTH_URL = "https://auth.example";
+      process.env.XENON_URL = "https://env.example";
+      config.auth!.baseURL = "https://cms.example.com/app";
+      expect((await upload("https://cms.example.com")).status).toBe(201);
+      for (const denied of ["https://cms.example.com.evil.test", "https://untrusted.example", "https://env.example", "null"]) {
+        expect((await upload(denied)).status).toBe(403);
+      }
+      delete config.auth!.baseURL;
+      expect((await upload("https://env.example")).status).toBe(201);
+      expect((await upload("https://auth.example")).status).toBe(403);
+      delete process.env.XENON_URL;
+      expect((await upload("https://auth.example")).status).toBe(201);
+      config.auth!.baseURL = "not a URL";
+      expect((await upload("https://auth.example")).status).toBe(403);
+      config.auth!.baseURL = "data:text/plain,opaque";
+      expect((await upload("null")).status).toBe(403);
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   test.each([
     { type: "text/html", attachment: true }, { type: "application/xhtml+xml", attachment: true },
     { type: "image/svg+xml", attachment: true }, { type: "image/svg+xml; charset=utf-8", attachment: true },
@@ -244,7 +329,7 @@ describe("REST handler with real Local API, auth, memory database and local file
     const file = { body: new Uint8Array([1, 2]), contentType: type, size: 2 };
     const stub = spyOn(xenon, "readFile").mockResolvedValue(file);
     try {
-      const response = await request("GET", "_files/immutable-file");
+      const response = await request("GET", "_files/media/immutable-file");
       expect(response.status).toBe(200);
       expect(response.headers.get("content-security-policy")).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
       expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");

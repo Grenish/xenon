@@ -41,9 +41,10 @@ import type { ClientCollection } from "../shared/client-config";
 import { adminRoutes } from "../shared/services";
 import { ElementMark } from "./brand";
 import { CommandPalette } from "./command-palette";
+import { guardNavigation } from "./dirty-guard";
 import { initials } from "./format";
 import { type AdminTheme, useAdminRuntime } from "./runtime";
-import { AvatarStack, dedupe, displayName, PersonAvatar, usePresence } from "./presence";
+import { AvatarStack, dedupe, displayName, leavePresence, PersonAvatar, usePresence } from "./presence";
 import { type Crumb, useShellBarContent } from "./shell-bar";
 import type { PresencePeer } from "../../adapters/types";
 
@@ -147,6 +148,7 @@ function UserMenu() {
   const router = useRouter();
 
   async function signOut() {
+    await leavePresence();
     await run({ type: "auth.logout" });
     router.replace(adminRoutes.login(basePath));
     router.refresh();
@@ -179,11 +181,11 @@ function UserMenu() {
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => router.push(adminRoutes.settings(basePath))}>
+        <DropdownMenuItem onClick={() => guardNavigation((replace) => (replace ? router.replace(adminRoutes.settings(basePath)) : router.push(adminRoutes.settings(basePath))))}>
           <RiUserLine /> Profile & security
         </DropdownMenuItem>
         {user.role === "admin" ? (
-          <DropdownMenuItem onClick={() => router.push(adminRoutes.settings(basePath, "team"))}>
+          <DropdownMenuItem onClick={() => guardNavigation((replace) => (replace ? router.replace(adminRoutes.settings(basePath, "team")) : router.push(adminRoutes.settings(basePath, "team"))))}>
             <RiTeamLine /> Team
           </DropdownMenuItem>
         ) : null}
@@ -203,7 +205,7 @@ function UserMenu() {
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={signOut}>
+        <DropdownMenuItem onClick={() => guardNavigation(() => void signOut())}>
           <RiLogoutBoxRLine /> Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
