@@ -22,6 +22,8 @@ function help(): string {
     options: [
       ["-t, --template <id>", `Starter template (${listStarterTemplateIds().join(", ")})`],
       ["-d, --db <adapter>", "Database adapter: pglite or postgres"],
+      ["    --src-dir", "Put the app code in src/ (default)"],
+      ["    --no-src-dir", "Put app/ and xenon.config.ts at the project root"],
       ["    --pm <manager>", "Package manager: bun, pnpm, yarn or npm"],
       ["-y, --yes", "Skip prompts and accept the defaults"],
       ["    --force", "Write into a directory that isn't empty"],
@@ -44,6 +46,8 @@ export interface CreateOptions {
   template?: string;
   db?: DatabaseChoice;
   pm?: PackageManager;
+  /** `true`: code under `src/`; `false`: `app/` at the project root. Asked interactively when omitted. */
+  srcDir?: boolean;
   yes?: boolean;
   force?: boolean;
   dryRun?: boolean;
@@ -58,6 +62,7 @@ export interface CreateResult {
   template: string;
   db: DatabaseChoice;
   pm: PackageManager;
+  srcDir: boolean;
   files: string[];
   installed: boolean;
 }
@@ -95,6 +100,7 @@ export async function createXenonApp(options: CreateOptions = {}): Promise<Creat
     throw new Error(`Unknown template "${options.template}". Available templates: ${listStarterTemplateIds().join(", ")}.`);
   }
   let db: DatabaseChoice | undefined = options.db;
+  let srcDir: boolean | undefined = options.srcDir;
   const pm: PackageManager = options.pm ?? detectDefaultPm();
 
   log(ui.intro("create-xenon-app", pkg.version));
@@ -121,6 +127,19 @@ export async function createXenonApp(options: CreateOptions = {}): Promise<Creat
       });
       template = getStarterTemplate(id);
     }
+    if (srcDir !== undefined) log(ui.answer("Layout", srcDir ? "src/ directory" : "Root app/ directory"));
+    else {
+      const layout = await ui.select<"src" | "root">({
+        label: "Layout",
+        message: "Where should the app code live?",
+        choices: [
+          { value: "src", label: "src/ directory", hint: "src/app, src/xenon.config.ts" },
+          { value: "root", label: "Root app/ directory", hint: "app/, xenon.config.ts at the project root" },
+        ],
+        initial: "src",
+      });
+      srcDir = layout === "src";
+    }
     if (db) log(ui.answer("Database", DB_LABELS[db].label));
     else {
       db = await ui.select<DatabaseChoice>({
@@ -135,7 +154,8 @@ export async function createXenonApp(options: CreateOptions = {}): Promise<Creat
   dirArg ??= "my-xenon-app";
   template ??= STARTER_TEMPLATES[0]!;
   db ??= "pglite";
-  if (!interactive) log(`  ${ui.c.dim(`${template.label} · ${DB_LABELS[db].label} · ${pm}`)}`);
+  srcDir ??= true;
+  if (!interactive) log(`  ${ui.c.dim(`${template.label} · ${DB_LABELS[db].label} · ${srcDir ? "src/ directory" : "root app/ directory"} · ${pm}`)}`);
 
   const targetDir = resolve(baseCwd, dirArg);
   if (!options.dryRun && !options.force && isDirNonEmpty(targetDir)) {
@@ -144,7 +164,7 @@ export async function createXenonApp(options: CreateOptions = {}): Promise<Creat
 
   const projectName = basename(targetDir);
   const packageName = toPackageName(projectName);
-  const { files, nextSteps } = template.generate({ projectName, packageName, db, pm });
+  const { files, nextSteps } = template.generate({ projectName, packageName, db, pm, srcDir });
 
   if (!options.dryRun) {
     mkdirSync(targetDir, { recursive: true });
@@ -187,6 +207,7 @@ export async function createXenonApp(options: CreateOptions = {}): Promise<Creat
     template: template.id,
     db,
     pm,
+    srcDir,
     files: files.map((f) => f.path),
     installed,
   };
@@ -207,6 +228,8 @@ export function parseCreateArgs(argv: readonly string[]): CreateOptions & { help
     else if (arg === "--force") opts.force = true;
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--no-install") opts.install = false;
+    else if (arg === "--src-dir") opts.srcDir = true;
+    else if (arg === "--no-src-dir") opts.srcDir = false;
     else if (arg === "-t" || arg === "--template") { opts.template = nextValue(i, arg); i++; }
     else if (arg.startsWith("--template=")) opts.template = arg.slice("--template=".length);
     else if (arg === "-d" || arg === "--db") {

@@ -15,6 +15,8 @@ export interface StarterTemplateOptions {
   packageName: string;
   db: DatabaseChoice;
   pm: PackageManager;
+  /** Put the app code under `src/` (`src/app`, `src/xenon.config.ts`) instead of the project root. */
+  srcDir: boolean;
 }
 
 export interface StarterTemplateResult {
@@ -117,7 +119,8 @@ const nextStarter: StarterTemplate = {
   label: "Next.js (App Router)",
   description: "Full-stack Next.js 16 app with Admin UI, REST API & typed Local API",
 
-  generate({ projectName, packageName, db, pm }): StarterTemplateResult {
+  generate({ projectName, packageName, db, pm, srcDir }): StarterTemplateResult {
+    const base = srcDir ? "src/" : "";
     const dbDep: Record<string, string> =
       db === "postgres" ? { postgres: "^4.1.1" } : { "@electric-sql/pglite": "^0.5.16" };
 
@@ -186,7 +189,7 @@ export default nextConfig;
               jsx: "react-jsx",
               incremental: true,
               plugins: [{ name: "next" }],
-              paths: { "@/*": ["./src/*"] },
+              paths: { "@/*": [srcDir ? "./src/*" : "./*"] },
             },
             include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
             exclude: ["node_modules"],
@@ -196,9 +199,9 @@ export default nextConfig;
         )}\n`,
       },
       { path: "next.config.ts", content: nextConfig },
-      { path: "src/xenon.config.ts", content: renderXenonConfig(db) },
+      { path: `${base}xenon.config.ts`, content: renderXenonConfig(db) },
       {
-        path: "src/app/layout.tsx",
+        path: `${base}app/layout.tsx`,
         content: `import type { ReactNode } from "react";
 
 export const metadata = {
@@ -216,7 +219,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 `,
       },
       {
-        path: "src/app/page.tsx",
+        path: `${base}app/page.tsx`,
         content: `import Link from "next/link";
 import { getXenon } from "xenon-cms/next";
 import config, { type Post } from "@/xenon.config";
@@ -249,7 +252,7 @@ export default async function HomePage() {
 `,
       },
       {
-        path: "src/app/api/xenon/[...slug]/route.ts",
+        path: `${base}app/api/xenon/[...slug]/route.ts`,
         content: `import config from "@/xenon.config";
 import { createApiHandler } from "xenon-cms/next";
 
@@ -257,7 +260,7 @@ export const { GET, POST, PATCH, DELETE } = createApiHandler(config);
 `,
       },
       {
-        path: "src/app/admin/[[...segments]]/page.tsx",
+        path: `${base}app/admin/[[...segments]]/page.tsx`,
         content: `import "xenon-cms/styles.css";
 import config from "@/xenon.config";
 import { AdminPage, type AdminActionInput, type AdminPageProps, runAdminAction } from "xenon-cms/next";

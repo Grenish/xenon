@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import pkgMeta from "../package.json" with { type: "json" };
@@ -31,6 +31,57 @@ describe("create-xenon-app", () => {
       yes: true,
       install: false,
     });
+    expect(parseCreateArgs(["x", "--src-dir"]).srcDir).toBe(true);
+    expect(parseCreateArgs(["x", "--no-src-dir"]).srcDir).toBe(false);
+    expect(parseCreateArgs(["x"]).srcDir).toBeUndefined();
+  });
+
+  test("puts app code in src/ by default, or at the root with srcDir: false", async () => {
+    const base = makeTempDir();
+    const common = { cwd: base, template: "next", db: "pglite" as const, pm: "npm" as const, yes: true, install: false, log: () => {} };
+
+    const withSrc = await createXenonApp({ ...common, targetDir: "with-src" });
+    expect(withSrc.srcDir).toBe(true);
+    expect(withSrc.files).toContain("src/app/page.tsx");
+    expect(withSrc.files).toContain("src/xenon.config.ts");
+    const srcTsconfig = JSON.parse(readFileSync(join(base, "with-src/tsconfig.json"), "utf8"));
+    expect(srcTsconfig.compilerOptions.paths["@/*"]).toEqual(["./src/*"]);
+
+    const root = await createXenonApp({ ...common, targetDir: "root-app", srcDir: false });
+    expect(root.srcDir).toBe(false);
+    expect(root.files).toContain("app/page.tsx");
+    expect(root.files).toContain("app/api/xenon/[...slug]/route.ts");
+    expect(root.files).toContain("app/admin/[[...segments]]/page.tsx");
+    expect(root.files).toContain("xenon.config.ts");
+    expect(root.files.some((f) => f.startsWith("src/"))).toBe(false);
+    expect(existsSync(join(base, "root-app/src"))).toBe(false);
+    const rootTsconfig = JSON.parse(readFileSync(join(base, "root-app/tsconfig.json"), "utf8"));
+    expect(rootTsconfig.compilerOptions.paths["@/*"]).toEqual(["./*"]);
+    expect(readFileSync(join(base, "root-app/app/page.tsx"), "utf8")).toContain('from "@/xenon.config"');
+  });
+
+  test("generated projects typecheck in both layouts against the built xenon-cms", async () => {
+    const xenonRoot = resolve(import.meta.dir, "../../xenon");
+    const tsc = resolve(import.meta.dir, "../../../node_modules/.bin/tsc");
+    if (!existsSync(join(xenonRoot, "dist/index.d.ts")) || !existsSync(tsc)) return;
+    const base = makeTempDir();
+    for (const srcDir of [true, false]) {
+      const name = srcDir ? "tc-src" : "tc-root";
+      await createXenonApp({ cwd: base, targetDir: name, template: "next", db: "pglite", pm: "npm", srcDir, yes: true, install: false, log: () => {} });
+      const project = join(base, name);
+      // Stand in for `npm install`: link the workspace's builds of the dependencies the project uses.
+      const modules = join(project, "node_modules");
+      mkdirSync(join(modules, "@types"), { recursive: true });
+      symlinkSync(xenonRoot, join(modules, "xenon-cms"), "dir");
+      for (const dep of ["next", "react", "react-dom", "@electric-sql/pglite"]) {
+        mkdirSync(join(modules, dep, ".."), { recursive: true });
+        symlinkSync(join(xenonRoot, "node_modules", dep), join(modules, dep), "dir");
+      }
+      for (const types of ["react", "react-dom"]) symlinkSync(join(xenonRoot, "node_modules/@types", types), join(modules, "@types", types), "dir");
+      writeFileSync(join(project, "next-env.d.ts"), '/// <reference types="next" />\ndeclare module "*.css";\n');
+      const result = spawnSync(tsc, ["--noEmit", "-p", project], { encoding: "utf8", shell: process.platform === "win32" });
+      if (result.status !== 0) throw new Error(`tsc failed for the ${srcDir ? "src/" : "root app/"} layout:\n${result.stdout}${result.stderr}`);
+    }
   });
 
   test("scaffolds a complete Next.js + PGlite app pinned to matching xenon-cms version", async () => {
