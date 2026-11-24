@@ -1,69 +1,10 @@
 import { memoryAdapter as betterAuthMemoryAdapter } from "better-auth/adapters/memory";
 import { getSchema } from "better-auth/db";
+import { compareStrings, compareValues, matchesOperators } from "./match";
 import { SlugConflictError, UpdateConflictError } from "./types";
-import type { DatabaseAdapter, DocumentRecord, Where, WhereOperators } from "./types";
+import type { DatabaseAdapter, DocumentRecord, Where } from "./types";
 
 const systemKeys = new Set(["id", "slug", "status", "createdAt", "updatedAt"]);
-
-/** Unicode scalar order, matching PostgreSQL COLLATE "C" for UTF-8 data. */
-function compareStrings(left: string, right: string): number {
-  const a = [...left];
-  const b = [...right];
-  for (let index = 0; index < Math.min(a.length, b.length); index++) {
-    const difference = a[index]!.codePointAt(0)! - b[index]!.codePointAt(0)!;
-    if (difference) return difference;
-  }
-  return a.length - b.length;
-}
-
-function compare(left: unknown, right: unknown): number | null {
-  if (typeof left === "number" && typeof right === "number") return left - right;
-  if (typeof left === "string" && typeof right === "string") return compareStrings(left, right);
-  return null;
-}
-
-function equals(left: unknown, right: unknown): boolean {
-  if (left === right || left == null && right == null) return true;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => equals(item, right[index]));
-  }
-  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) return false;
-  const a = left as Record<string, unknown>;
-  const b = right as Record<string, unknown>;
-  return Object.keys(a).length === Object.keys(b).length && Object.keys(a).every((key) => Object.hasOwn(b, key) && equals(a[key], b[key]));
-}
-
-function matchesOperators(value: unknown, operators: WhereOperators, date: boolean): boolean {
-  for (const [operator, original] of Object.entries(operators)) {
-    if (original === undefined) continue;
-    const expected = date && original instanceof Date ? original.toISOString() : original;
-    switch (operator) {
-      case "equals": if (!equals(value, expected)) return false; break;
-      case "not_equals": if (equals(value, expected)) return false; break;
-      case "in":
-      case "not_in": {
-        if (!Array.isArray(expected)) return false;
-        const included = expected.some((item) => equals(value, date && item instanceof Date ? item.toISOString() : item));
-        if (operator === "in" ? !included : included) return false;
-        break;
-      }
-      case "contains":
-        if (Array.isArray(value)) { if (!value.some((item) => equals(item, expected))) return false; }
-        else if (!(typeof value === "string" && typeof expected === "string" && value.toLowerCase().includes(expected.toLowerCase()))) return false;
-        break;
-      case "exists": if ((value != null) !== expected) return false; break;
-      case "gt": case "gte": case "lt": case "lte": {
-        const comparison = compare(value, expected);
-        if (comparison === null || (operator === "gt" && comparison <= 0) ||
-          (operator === "gte" && comparison < 0) || (operator === "lt" && comparison >= 0) ||
-          (operator === "lte" && comparison > 0)) return false;
-        break;
-      }
-      default: return false;
-    }
-  }
-  return true;
-}
 
 function valueFor(record: DocumentRecord, key: string, source: "published" | "draft"): unknown {
   if (key === "createdAt" || key === "updatedAt") return record[key].toISOString();
@@ -110,7 +51,7 @@ export function memoryAdapter(): DatabaseAdapter {
         const b = valueFor(right, key, source);
         if (a == null && b != null) return 1;
         if (a != null && b == null) return -1;
-        const comparison = compare(a, b) ?? 0;
+        const comparison = compareValues(a, b) ?? 0;
         return (descending ? -comparison : comparison) || compareStrings(left.id, right.id);
       });
       const totalDocs = rows.length;

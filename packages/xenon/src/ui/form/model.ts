@@ -13,6 +13,21 @@ export function initialData(collection: ClientCollection, doc: AdminDoc | null):
   return data;
 }
 
+/**
+ * Normalizes form data before submission: cleared `text`/`textarea` inputs (`""`) become `null`
+ * (unless the field explicitly defaults to `""`) so optional/draft `minLength` and `pattern` checks
+ * don't reject cleared inputs on the server.
+ */
+export function normalizeFormData(fields: ClientField[], data: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...data };
+  for (const field of fields) {
+    if ((field.type === "text" || field.type === "textarea") && out[field.name] === "" && field.defaultValue !== "") {
+      out[field.name] = null;
+    }
+  }
+  return out;
+}
+
 export function validateFields(fields: ClientField[], data: Record<string, unknown>, draft: boolean): Record<string, string> {
   const errors: Record<string, string> = {};
   for (const field of fields) {
@@ -24,7 +39,16 @@ export function validateFields(fields: ClientField[], data: Record<string, unkno
     }
     if (typeof value === "string" && (field.type === "text" || field.type === "textarea")) {
       if (field.minLength !== undefined && value.length < field.minLength) errors[field.name] = `Use at least ${field.minLength} characters.`;
-      if (field.maxLength !== undefined && value.length > field.maxLength) errors[field.name] = `Use ${field.maxLength} characters or fewer.`;
+      else if (field.maxLength !== undefined && value.length > field.maxLength) errors[field.name] = `Use ${field.maxLength} characters or fewer.`;
+      else if (field.type === "text" && field.pattern) {
+        try {
+          if (!new RegExp(field.pattern.source, field.pattern.flags).test(value)) {
+            errors[field.name] = `${field.label} doesn't match the required format.`;
+          }
+        } catch {
+          // Server validation still enforces the real RegExp if flags/source fail to reconstruct.
+        }
+      }
     }
     if (field.type === "number") {
       if (typeof value !== "number" || !Number.isFinite(value)) errors[field.name] = "Enter a valid number.";

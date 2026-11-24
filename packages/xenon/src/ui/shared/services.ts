@@ -39,10 +39,19 @@ export interface DocSummary {
 export interface SearchInput {
   collection: string;
   query?: string;
+  /** Restrict results and pagination totals to uploads with an image MIME type. */
+  imagesOnly?: boolean;
   page?: number;
   limit?: number;
   /** Resolve exactly these ids (order preserved, missing ids omitted). */
   ids?: string[];
+}
+
+/** Display the same title in search results and immediately after an upload. */
+export function documentSummaryTitle(data: Record<string, unknown>, titleKey: string | null | undefined, fallback = "Untitled"): string {
+  const title = titleKey ? data[titleKey] : undefined;
+  if (typeof title === "string" && title.trim()) return title;
+  return typeof data.filename === "string" && data.filename.trim() ? data.filename : fallback;
 }
 
 export interface SearchResult {

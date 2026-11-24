@@ -10,11 +10,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/tabs";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../components/empty";
 import { Spinner } from "../components/spinner";
 import { useAdmin } from "../shared/admin-context";
-import type { DocSummary } from "../shared/services";
+import { documentSummaryTitle, type DocSummary } from "../shared/services";
 import { cn } from "../lib/utils";
 import { FileDropzone } from "./file-dropzone";
 import { FormRenderer } from "./form-renderer";
-import { initialData, validateFields } from "./model";
+import { initialData, normalizeFormData, validateFields } from "./model";
 import { useDocumentSearch } from "./use-document-search";
 
 export interface MediaPickerProps {
@@ -38,8 +38,8 @@ function MediaPickerContent({ collection, onOpenChange, onChoose, multiple, sele
   const [data, setData] = useState<Record<string, unknown>>(() => definition ? initialData(definition, null) : {});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
-  const search = useDocumentSearch({ collection, query, page, limit: 18 });
-  const docs = search.result.docs.filter((item) => !imagesOnly || item.mimeType?.startsWith("image/"));
+  const search = useDocumentSearch({ collection, query, page, limit: 18, imagesOnly });
+  const docs = search.result.docs;
   function choose(doc: DocSummary) {
     if (!multiple) { onChoose([doc]); onOpenChange(false); return; }
     setChosen((previous) => previous.some((item) => item.id === doc.id) ? previous.filter((item) => item.id !== doc.id) : [...previous, doc]);
@@ -51,13 +51,13 @@ function MediaPickerContent({ collection, onOpenChange, onChoose, multiple, sele
     if (Object.keys(invalid).length) return;
     setPending(true);
     try {
-      const result = await services.upload({ collection, file, data });
+      const result = await services.upload({ collection, file, data: normalizeFormData(definition.fields, data) });
       if (!result.ok) {
         setErrors(Object.fromEntries((result.error.issues ?? []).filter((issue) => typeof issue.path[0] === "string").map((issue) => [String(issue.path[0]), issue.message])));
         toast.error(result.error.message); return;
       }
       const doc = result.data;
-      const summary: DocSummary = { id: doc.id, title: String(doc.data.alt || doc.data.filename || file.name), status: doc.status, updatedAt: doc.updatedAt,
+      const summary: DocSummary = { id: doc.id, title: documentSummaryTitle(doc.data, definition.admin.useAsTitle, file.name), status: doc.status, updatedAt: doc.updatedAt,
         url: typeof doc.data.url === "string" ? doc.data.url : null, mimeType: typeof doc.data.mimeType === "string" ? doc.data.mimeType : null,
         filename: typeof doc.data.filename === "string" ? doc.data.filename : null };
       toast.success("File uploaded");

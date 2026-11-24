@@ -1,9 +1,13 @@
-import { headers as nextHeaders } from "next/headers";
+import { cookies, headers as nextHeaders } from "next/headers";
 import { isXenonError, XenonError } from "../../core/errors";
 import type { AnyCollection, XenonConfig, XenonRole, XenonUser } from "../../core/types";
-import type { DocumentRecord } from "../../adapters/types";
+import { type DocumentRecord, SlugConflictError, type Where } from "../../adapters/types";
 import type { XenonInstance } from "../../server/types";
-import type { AccountSession, ActionResult, AdminDoc, AdminUserInfo, DocSummary, SearchResult } from "../../ui/shared/services";
+import {
+  documentSummaryTitle,
+  type AccountSession, type ActionResult, type AdminDoc, type AdminUserInfo,
+  type DocSummary, type SearchInput, type SearchResult,
+} from "../../ui/shared/services";
 import { resolveSecret, toRole } from "../../auth";
 import { signPresenceToken } from "../../server/presence";
 import { getXenon } from "../xenon";
@@ -20,7 +24,7 @@ export type AdminActionInput =
   | { type: "doc.save"; collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string }
   | { type: "doc.unpublish"; collection: string; id: string }
   | { type: "doc.remove"; collection: string; id: string }
-  | { type: "doc.search"; collection: string; query?: string; page?: number; limit?: number; ids?: string[] }
+  | ({ type: "doc.search" } & SearchInput)
   | { type: "users.list" }
   | { type: "users.create"; name: string; email: string; password: string; role: XenonRole }
   | { type: "users.setRole"; userId: string; role: XenonRole }
@@ -63,12 +67,12 @@ function fail(error: unknown): ActionResult<never> {
   return { ok: false, error: { code: "INTERNAL", message: "Something went wrong. Please try again." } };
 }
 
+export function titleFieldKey(collection: AnyCollection): string | undefined {
+  return collection.admin?.useAsTitle ?? Object.entries(collection.fields).find(([, f]) => f.type === "text")?.[0];
+}
+
 export function summaryTitle(collection: AnyCollection, data: Record<string, unknown>): string {
-  const key = collection.admin?.useAsTitle ?? Object.entries(collection.fields).find(([, f]) => f.type === "text")?.[0];
-  const value = key ? data[key] : undefined;
-  if (typeof value === "string" && value.trim()) return value;
-  if (typeof data.filename === "string") return data.filename;
-  return "Untitled";
+  return documentSummaryTitle(data, titleFieldKey(collection));
 }
 
 /** Converts a working-copy document from the Local API into the admin shape. */
@@ -104,6 +108,56 @@ export async function loadAdminDoc(xenon: XenonInstance, config: XenonConfig, co
   return toAdminDoc(doc as Record<string, unknown>, record);
 }
 
+const SETUP_COLLECTION = "_xenon_setup";
+const SETUP_LOCK_SLUG = "lock";
+/** A lock older than this with still no users is left behind by a crashed setup and may be taken over. */
+const SETUP_LOCK_STALE_MS = 5 * 60_000;
+
+/**
+ * Claims the first-run setup. Returns a `release` callback that removes the lock so setup can be retried.
+ * The row is `(collection "_xenon_setup", slug "lock")`: user collections can't start with `_`, so it can't collide.
+ */
+export async function claimSetup(config: XenonConfig): Promise<() => Promise<void>> {
+  const db = config.db;
+  if (!db) throw new XenonError("BAD_REQUEST", "Auth is not configured (no database).");
+  const claim = () =>
+    db.create({
+      collection: SETUP_COLLECTION,
+      slug: SETUP_LOCK_SLUG,
+      status: "published",
+      data: { claimedAt: new Date().toISOString() },
+      draftData: null,
+    });
+  const lockFailed = () => new XenonError("FORBIDDEN", "Setup has already been completed.");
+
+  let lock: Awaited<ReturnType<typeof claim>>;
+  try {
+    lock = await claim();
+  } catch (err) {
+    if (!(err instanceof SlugConflictError)) throw err;
+    // Someone else holds the lock. Take it over only if it's stale and no user exists (a crashed setup).
+    const { docs } = await db.find({
+      collection: SETUP_COLLECTION,
+      source: "published",
+      where: { slug: { equals: SETUP_LOCK_SLUG } },
+      limit: 1,
+    });
+    const existing = docs[0];
+    if (!existing || Date.now() - existing.createdAt.getTime() <= SETUP_LOCK_STALE_MS) throw lockFailed();
+    if ((await countUsers(getXenon(config))) > 0) throw lockFailed();
+    await db.delete(SETUP_COLLECTION, existing.id);
+    try {
+      lock = await claim();
+    } catch (retryErr) {
+      if (retryErr instanceof SlugConflictError) throw lockFailed();
+      throw retryErr;
+    }
+  }
+  return async () => {
+    await db.delete(SETUP_COLLECTION, lock.id);
+  };
+}
+
 export async function countUsers(xenon: XenonInstance): Promise<number> {
   const auth = await xenon.getAuth();
   if (!auth) return 0;
@@ -123,16 +177,41 @@ function requireRole(value: unknown): XenonRole {
 }
 
 /**
+ * Merges the current cookie jar into the request headers.
+ * When a Server Action rotates or clears the session cookie (e.g. changing password or signing out),
+ * `headers()` still holds the incoming request while `cookies()` reflects the updated cookies.
+ */
+export function mergeSessionHeaders(headers: Headers, cookieHeader: string): Headers {
+  const merged = new Headers(headers);
+  if (cookieHeader) merged.set("cookie", cookieHeader);
+  else merged.delete("cookie");
+  return merged;
+}
+
+export async function sessionRequestHeaders(): Promise<Headers> {
+  const [headers, cookieStore] = await Promise.all([nextHeaders(), cookies()]);
+  return mergeSessionHeaders(headers, cookieStore.toString());
+}
+
+/**
  * Dispatches an admin action. Call it from a user-land `"use server"` function:
  * `async function action(input) { "use server"; return runAdminAction(config, input); }`
  */
 export async function runAdminAction(config: XenonConfig, input: AdminActionInput): Promise<AdminActionResult> {
   try {
+    return await dispatchAdminAction(config, input, await sessionRequestHeaders());
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/** Internal dispatcher taking explicit headers (used by `AdminPage` SSR and tests). */
+export async function dispatchAdminAction(config: XenonConfig, input: AdminActionInput, headers: Headers): Promise<AdminActionResult> {
+  try {
     const xenon = getXenon(config);
     const auth = await xenon.getAuth();
     if (!auth) throw new XenonError("BAD_REQUEST", "Auth is not configured (no database).");
     const api = auth.api as unknown as AnyApi;
-    const headers = await nextHeaders();
 
     // ---- unauthenticated actions -------------------------------------------------------------
     if (input.type === "auth.login") {
@@ -146,8 +225,19 @@ export async function runAdminAction(config: XenonConfig, input: AdminActionInpu
       if ((await countUsers(xenon)) > 0) throw new XenonError("FORBIDDEN", "Setup has already been completed.");
       const email = requireString(input.email, "email");
       const password = requireString(input.password, "password", 8);
-      // Server-side call without a session: allowed by BetterAuth's admin plugin.
-      await api.createUser!({ body: { email, password, name: requireString(input.name, "name"), role: "admin" } });
+      const name = requireString(input.name, "name");
+      // Only one request may create the first admin. The lock row is a unique (collection, slug) insert, so
+      // concurrent setups (any process, any adapter) can't both claim it. It stays after success, which keeps setup closed.
+      const release = await claimSetup(config);
+      try {
+        // Re-check after claiming: a user created out of band between the first check and the claim must still fail closed.
+        if ((await countUsers(xenon)) > 0) throw new XenonError("FORBIDDEN", "Setup has already been completed.");
+        // Server-side call without a session: allowed by BetterAuth's admin plugin.
+        await api.createUser!({ body: { email, password, name, role: "admin" } });
+      } catch (err) {
+        await release();
+        throw err;
+      }
       await api.signInEmail!({ body: { email, password }, headers });
       return ok(null);
     }
@@ -205,19 +295,25 @@ export async function runAdminAction(config: XenonConfig, input: AdminActionInpu
       case "doc.search": {
         const collection = collectionOf(input.collection);
         const limit = Math.min(Math.max(1, input.limit ?? 24), 100);
+        // '/' immediately precedes '0' in binary string order. This range matches the image/ prefix.
+        const where: Where = input.imagesOnly === true ? { mimeType: { gte: "image/", lt: "image0" } } : {};
         if (input.ids) {
           const ids = input.ids.filter((v) => typeof v === "string").slice(0, 200);
           if (ids.length === 0) return ok<SearchResult>({ docs: [], totalDocs: 0, page: 1, hasNextPage: false });
-          const res = await xenon.find({ ...ctx, collection: input.collection, draft: true, where: { id: { in: ids } }, limit: 0 });
+          const res = await xenon.find({ ...ctx, collection: input.collection, draft: true, where: { ...where, id: { in: ids } }, limit: ids.length });
           const byId = new Map(res.docs.map((d) => [(d as { id: string }).id, d]));
           const docs = ids.flatMap((id) => (byId.has(id) ? [toSummary(collection, byId.get(id) as Record<string, unknown>)] : []));
           return ok<SearchResult>({ docs, totalDocs: docs.length, page: 1, hasNextPage: false });
         }
-        const titleKey = collection.admin?.useAsTitle;
+        const titleKey = titleFieldKey(collection);
         const q = input.query?.trim();
-        const where = q
-          ? { or: [...(titleKey ? [{ [titleKey]: { contains: q } }] : []), { slug: { contains: q } }, { filename: { contains: q } }] }
-          : undefined;
+        if (q) {
+          where.or = [
+            ...(titleKey ? [{ [titleKey]: { contains: q } }] : []),
+            { slug: { contains: q } },
+            ...(collection.upload ? [{ filename: { contains: q } }] : []),
+          ];
+        }
         const res = await xenon.find({
           ...ctx,
           collection: input.collection,

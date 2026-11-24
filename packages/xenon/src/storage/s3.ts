@@ -41,8 +41,12 @@ export class S3StorageAdapter implements StorageAdapter {
   }
 
   async upload(file: UploadFileInput): Promise<{ key: string; url: string }> {
+    // Fetch accepts ArrayBuffer-backed views, including Node Buffers and subarrays.
+    const body = file.body.buffer instanceof ArrayBuffer
+      ? new Uint8Array(file.body.buffer, file.body.byteOffset, file.body.byteLength)
+      : new Uint8Array(file.body);
     const request = await this.client.sign(this.objectUrl(file.key), {
-      method: "PUT", body: new Uint8Array(file.body),
+      method: "PUT", body,
       headers: { "content-type": file.contentType, "content-length": String(file.size) },
     });
     const response = await fetch(request);

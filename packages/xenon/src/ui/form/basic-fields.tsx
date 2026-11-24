@@ -12,9 +12,13 @@ function controlProps(props: FieldInputProps) {
   return { id: props.id, disabled: props.disabled, readOnly: props.field.admin.readOnly, "aria-invalid": props["aria-invalid"], "aria-describedby": props["aria-describedby"] };
 }
 
+function textValue(value: string, field: FieldInputProps["field"]): string | null {
+  return value === "" && field.defaultValue !== "" ? null : value;
+}
+
 export function TextField(props: FieldInputProps) {
   return <Input {...controlProps(props)} value={typeof props.value === "string" ? props.value : ""} placeholder={props.field.admin.placeholder}
-    maxLength={props.field.maxLength} onChange={(event) => props.onChange(event.target.value)} />;
+    maxLength={props.field.maxLength} onChange={(event) => props.onChange(textValue(event.target.value, props.field))} />;
 }
 
 export function TextareaField(props: FieldInputProps) {
@@ -25,7 +29,7 @@ export function TextareaField(props: FieldInputProps) {
     ref.current.style.height = `${ref.current.scrollHeight}px`;
   }, [props.value]);
   return <Textarea {...controlProps(props)} ref={ref} rows={props.field.rows ?? 4} value={typeof props.value === "string" ? props.value : ""}
-    placeholder={props.field.admin.placeholder} maxLength={props.field.maxLength} onChange={(event) => props.onChange(event.target.value)} />;
+    placeholder={props.field.admin.placeholder} maxLength={props.field.maxLength} onChange={(event) => props.onChange(textValue(event.target.value, props.field))} />;
 }
 
 export function NumberField(props: FieldInputProps) {

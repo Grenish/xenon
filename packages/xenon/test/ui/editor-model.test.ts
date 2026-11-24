@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { boolean, defineCollection, number, select, text, textarea } from "../../src/index";
+import { boolean, defineCollection, number, select, text, textarea, validateCollectionData } from "../../src/index";
 import { cn } from "../../src/ui/lib/utils";
 import { toClientCollection } from "../../src/ui/shared/client-config";
-import { documentTitle, initialData, validateFields } from "../../src/ui/form/model";
+import { documentTitle, initialData, normalizeFormData, validateFields } from "../../src/ui/form/model";
 import type { AdminDoc } from "../../src/ui/shared/services";
 
 const collection = toClientCollection(defineCollection({
@@ -59,6 +59,39 @@ describe("document editor state and client validation", () => {
   test("editor titles use the configured title with a friendly fallback", () => {
     expect(documentTitle(collection, { title: "A post" })).toBe("A post");
     expect(documentTitle(collection, { title: " " })).toBe("Untitled post");
+  });
+
+  test("normalizeFormData turns cleared text/textarea values into null so optional constraints can be cleared", () => {
+    const raw = defineCollection({
+      slug: "articles",
+      fields: {
+        title: text({ required: true, minLength: 2 }),
+        summary: textarea({ minLength: 10 }),
+        code: text({ pattern: /^[A-Z]{3}$/ }),
+        note: text({ defaultValue: "" }),
+      },
+    });
+    const client = toClientCollection(raw);
+
+    const normalized = normalizeFormData(client.fields, { title: "Hello", summary: "", code: "", note: "" });
+    expect(normalized).toEqual({ title: "Hello", summary: null, code: null, note: "" });
+    expect(validateCollectionData(raw, normalized, { mode: "create" }).success).toBe(true);
+    expect(validateCollectionData(raw, normalizeFormData(client.fields, { title: "", summary: "", code: "" }), { mode: "draft" }).success).toBe(true);
+  });
+
+  test("client validation enforces text pattern rules while allowing cleared optional values", () => {
+    const patterned = toClientCollection(defineCollection({
+      slug: "codes",
+      fields: {
+        code: text({ pattern: /^[A-Z]{3}$/ }),
+      },
+    }));
+
+    expect(validateFields(patterned.fields, { code: "abc" }, false)).toHaveProperty("code");
+    expect(validateFields(patterned.fields, { code: "abc" }, true)).toHaveProperty("code");
+    expect(validateFields(patterned.fields, { code: "XYZ" }, false)).toEqual({});
+    expect(validateFields(patterned.fields, { code: null }, false)).toEqual({});
+    expect(validateFields(patterned.fields, { code: "" }, false)).toEqual({});
   });
 });
 

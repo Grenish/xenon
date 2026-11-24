@@ -9,7 +9,7 @@ import {
   RiSearchLine,
 } from "@remixicon/react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { buttonVariants } from "../components/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../components/empty";
@@ -25,6 +25,7 @@ import { DocPeers } from "./presence";
 import { collectionIcon } from "./shell";
 
 export interface ListRow extends DocSummary {
+  changed?: boolean;
   values: Record<string, unknown>;
 }
 
@@ -75,11 +76,12 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
   const { basePath } = useAdmin();
   const router = useRouter();
   const pathname = usePathname();
-  const params = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState(query.q);
   const [active, setActive] = useState(-1);
   const searchRef = useRef<HTMLInputElement>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const submittedSearches = useRef<string[]>([]);
   // A long-text field (an excerpt, a summary) reads better as the title's second line than as a column.
   const allColumns = pickColumns(collection);
   const subtitle = allColumns.find((f) => f.type === "textarea") ?? collection.fields.find((f) => f.type === "textarea" && !f.admin.hidden && f.name !== collection.admin.useAsTitle) ?? null;
@@ -88,7 +90,8 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
   const Icon = collectionIcon(collection);
 
   function update(next: Record<string, string | null>) {
-    const sp = new URLSearchParams(params.toString());
+    const sp = new URLSearchParams(window.location.search);
+    if (next.q !== undefined) submittedSearches.current.push(next.q ?? "");
     for (const [k, v] of Object.entries(next)) {
       if (v === null || v === "" || (k === "status" && v === "all") || (k === "page" && v === "1")) sp.delete(k);
       else sp.set(k, v);
@@ -97,13 +100,40 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
     startTransition(() => router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
   }
 
-  // Debounced search → URL
+  function editSearch(value: string) {
+    setSearch(value);
+    clearTimeout(searchTimer.current);
+    const q = value.trim();
+    if (q === query.q && submittedSearches.current.length === 0) return;
+    searchTimer.current = setTimeout(() => update({ q, page: null }), 250);
+  }
+
   useEffect(() => {
-    if (search === query.q) return;
-    const t = setTimeout(() => update({ q: search, page: null }), 250);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+    // A response to our own search may arrive while the next word is being typed.
+    const index = submittedSearches.current.lastIndexOf(query.q);
+    if (index >= 0) {
+      submittedSearches.current.splice(0, index + 1);
+      return;
+    }
+    clearTimeout(searchTimer.current);
+    submittedSearches.current = [];
+    setSearch(query.q);
+  }, [query.q, collection.slug]);
+
+  useEffect(() => {
+    const restore = () => {
+      clearTimeout(searchTimer.current);
+      submittedSearches.current = [];
+      setSearch(new URLSearchParams(window.location.search).get("q")?.trim() ?? "");
+    };
+    window.addEventListener("popstate", restore);
+    return () => {
+      clearTimeout(searchTimer.current);
+      window.removeEventListener("popstate", restore);
+    };
+  }, []);
+
+  useEffect(() => setActive(-1), [rows]);
 
   // Keyboard: "/" search, "c" create, j/k move, Enter open
   useEffect(() => {
@@ -118,7 +148,7 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
       } else if (e.key === "j" || e.key === "ArrowDown") {
         setActive((a) => Math.min(rows.length - 1, a + 1));
       } else if (e.key === "k" || e.key === "ArrowUp") {
-        setActive((a) => Math.max(0, a - 1));
+        setActive((a) => rows.length ? Math.max(0, a - 1) : -1);
       } else if (e.key === "Enter" && active >= 0 && rows[active]) {
         router.push(adminRoutes.edit(basePath, collection.slug, rows[active].id));
       }
@@ -185,7 +215,7 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
           <Input
             ref={searchRef}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => editSearch(e.target.value)}
             placeholder={`Search ${collection.labels.plural.toLowerCase()}`}
             className="xe:h-8 xe:pr-8 xe:pl-8"
             aria-label="Search"
@@ -213,7 +243,7 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
               </EmptyHeader>
               <EmptyContent>
                 {filtered ? (
-                  <button type="button" className={buttonVariants({ variant: "outline" })} onClick={() => { setSearch(""); update({ q: null, status: null, page: null }); }}>
+                  <button type="button" className={buttonVariants({ variant: "outline" })} onClick={() => { clearTimeout(searchTimer.current); setSearch(""); update({ q: null, status: null, page: null }); }}>
                     Clear filters
                   </button>
                 ) : (
@@ -296,7 +326,7 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
                     ))}
                     {collection.drafts && (
                       <TableCell>
-                        <StatusBadge status={row.status} />
+                        <StatusBadge status={row.status} changed={row.changed} />
                       </TableCell>
                     )}
                     <TableCell className="xe:pr-0 xe:text-right xe:text-[13px] xe:text-muted-foreground" title={formatDate(row.updatedAt)}>
