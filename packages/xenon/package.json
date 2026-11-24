@@ -1,6 +1,6 @@
 {
   "name": "xenon-cms",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lightweight, code-first, Next.js-native headless CMS.",
   "license": "MIT",
   "repository": {

@@ -1,5 +1,11 @@
 # create-xenon-app
 
+## 0.1.1
+
+### Patch Changes
+
+- b54ec2c: Ask whether the app code goes in a `src/` directory or a root `app/` directory, with `--src-dir` / `--no-src-dir` to choose without the prompt. `src/` stays the default.
+
 ## 0.1.0
 
 ### Minor Changes
