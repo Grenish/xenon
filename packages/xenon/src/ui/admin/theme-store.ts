@@ -54,3 +54,30 @@ export function useSystemDark(): boolean {
     () => false,
   );
 }
+
+let activeColorSchemeRoots = 0;
+let originalColorScheme: string | null = null;
+
+/**
+ * Reference-counted `documentElement.style.colorScheme` ownership across mounted `<AdminRoot>`
+ * instances. With Next.js `cacheComponents`, multiple `<AdminRoot>` trees stay mounted at once and
+ * toggling themes must never capture Xenon's own scheme as the host app's original value.
+ */
+export function acquireColorScheme(root: { style: { colorScheme: string } }): () => void {
+  if (activeColorSchemeRoots === 0) originalColorScheme = root.style.colorScheme;
+  activeColorSchemeRoots++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeColorSchemeRoots = Math.max(0, activeColorSchemeRoots - 1);
+    if (activeColorSchemeRoots === 0) {
+      root.style.colorScheme = originalColorScheme ?? "";
+      originalColorScheme = null;
+    }
+  };
+}
+
+export function applyColorScheme(root: { style: { colorScheme: string } }, dark: boolean): void {
+  if (activeColorSchemeRoots > 0) root.style.colorScheme = dark ? "dark" : "light";
+}

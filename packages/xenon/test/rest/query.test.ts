@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Where } from "../../src/adapters/types";
 import { boolean, defineCollection, number, select, text } from "../../src/index";
 import { XenonError } from "../../src/core/errors";
 import { parseDraft, parseQuery, parseWhere } from "../../src/next/query";
@@ -65,5 +66,32 @@ describe("REST query parser", () => {
   test("draft parser works independently for document writes", () => {
     expect(parseDraft(new URLSearchParams("draft=true"))).toBe(true);
     expect(parseDraft(new URLSearchParams())).toBe(false);
+  });
+
+  test("Low #24: empty bracket in/not_in parses as [] and parseWhere caps recursion depth", () => {
+    expect(query("where[category][in]=").where).toEqual({ category: { in: [] } });
+    expect(query("where[count][in]=").where).toEqual({ count: { in: [] } });
+    expect(query("where[category][not_in]=").where).toEqual({ category: { not_in: [] } });
+    expect(query("where[count][in]=&where[count][in]=2").where).toEqual({ count: { in: [2] } });
+
+    // Within depth limit succeeds
+    let validNested: Where = { title: { equals: "ok" } };
+    for (let i = 0; i < 8; i++) validNested = { and: [validNested] };
+    expect(parseWhere(posts, validNested)).toEqual(validNested);
+
+    // Excessive and/or nesting rejects with BAD_REQUEST instead of RangeError
+    let deepWhere: Record<string, unknown> = { title: { equals: "boom" } };
+    for (let i = 0; i < 30; i++) deepWhere = { and: [deepWhere] };
+    expect(() => parseWhere(posts, deepWhere)).toThrow(XenonError);
+
+    // Excessive nested array depth inside operator values rejects with BAD_REQUEST
+    let deepArray: unknown = "x";
+    for (let i = 0; i < 30; i++) deepArray = [deepArray];
+    expect(() => parseWhere(posts, { tags: { equals: deepArray } })).toThrow(XenonError);
+
+    // Excessive nested object depth inside operator values also rejects with BAD_REQUEST
+    let deepObject: Record<string, unknown> = { leaf: "x" };
+    for (let i = 0; i < 30; i++) deepObject = { nested: deepObject };
+    expect(() => parseWhere(posts, { title: { equals: deepObject } })).toThrow(XenonError);
   });
 });

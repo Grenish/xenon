@@ -26,11 +26,26 @@ function coerceBoolean(value: unknown, label: string): boolean {
   return bad(`${label} must be true or false.`);
 }
 
-function coerce(value: unknown, type: ReturnType<typeof fieldType>, label: string): unknown {
+const MAX_WHERE_DEPTH = 16;
+
+function assertMaxDepth(value: unknown, label: string, depth: number): void {
+  if (depth > MAX_WHERE_DEPTH) bad(`${label} exceeds maximum nesting depth.`);
+  if (Array.isArray(value)) {
+    for (const item of value) assertMaxDepth(item, label, depth + 1);
+  } else if (isObject(value)) {
+    for (const entry of Object.values(value)) assertMaxDepth(entry, label, depth + 1);
+  }
+}
+
+function coerce(value: unknown, type: ReturnType<typeof fieldType>, label: string, depth = 0): unknown {
+  if (depth > MAX_WHERE_DEPTH) return bad(`${label} exceeds maximum nesting depth.`);
   if (value === null) return null;
   // JSON arrays/objects participate in deep equality without being flattened or stringified.
-  if (Array.isArray(value)) return value.map((item) => coerce(item, type, label));
-  if (type === "json" || isObject(value)) return value;
+  if (Array.isArray(value)) return value.map((item) => coerce(item, type, label, depth + 1));
+  if (type === "json" || isObject(value)) {
+    assertMaxDepth(value, label, depth);
+    return value;
+  }
   if (type === "number") {
     if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return bad(`${label} must be a finite number.`);
     const number = Number(value);
@@ -64,13 +79,14 @@ function parseOperators(collection: AnyCollection, key: string, input: unknown):
   return result;
 }
 
-export function parseWhere(collection: AnyCollection, input: unknown): Where {
+export function parseWhere(collection: AnyCollection, input: unknown, depth = 0): Where {
+  if (depth > MAX_WHERE_DEPTH) return bad("where filter exceeds maximum nesting depth.");
   if (!isObject(input)) return bad("where must be an object.");
   const result: Where = {};
   for (const [key, value] of Object.entries(input)) {
     if (key === "and" || key === "or") {
       if (!Array.isArray(value)) return bad(`where.${key} must be an array.`);
-      result[key] = value.map((part) => parseWhere(collection, part));
+      result[key] = value.map((part) => parseWhere(collection, part, depth + 1));
     } else {
       // defineProperty avoids treating __proto__ specially in untrusted query input.
       Object.defineProperty(result, key, { value: parseOperators(collection, key, value), enumerable: true, writable: true, configurable: true });
@@ -125,7 +141,9 @@ export function parseQuery(params: URLSearchParams, collection: AnyCollection): 
       const operator = match[2]!;
       const values = params.getAll(key);
       if (operator !== "in" && operator !== "not_in" && values.length > 1) return bad(`${key} must be supplied once.`);
-      const value = operator === "in" || operator === "not_in" ? values.flatMap((entry) => entry.split(",")) : values[0];
+      const value = operator === "in" || operator === "not_in"
+        ? values.flatMap((entry) => (entry === "" ? [] : entry.split(",")))
+        : values[0];
       input[field] ??= Object.create(null);
       input[field]![operator] = value;
     }

@@ -22,9 +22,17 @@ export default function PostPage({ params }: { params: Promise<{ slug: string }>
   );
 }
 
+function decodeSlug(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 async function Post({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const post = await getPost(slug);
+  const post = await getPost(decodeSlug(slug));
   if (!post) notFound();
   const cover = await getMediaUrl(post.cover);
 

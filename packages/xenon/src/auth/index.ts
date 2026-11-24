@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { type BetterAuthOptions, type BetterAuthPlugin, betterAuth } from "better-auth";
 import { admin } from "better-auth/plugins/admin";
 import type { DatabaseAdapter } from "../adapters/types";
@@ -56,10 +56,16 @@ export function toRole(role: string | null | undefined): XenonRole {
   return role?.split(",").map((r) => r.trim()).includes("admin") ? "admin" : "editor";
 }
 
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
+const COMPARE_KEY = randomBytes(32);
+
+/**
+ * Constant-time string comparison that hides length differences by comparing fixed-size HMAC
+ * digests keyed with a per-process random secret.
+ */
+export function safeEqual(a: string, b: string): boolean {
+  const ha = createHmac("sha256", COMPARE_KEY).update(a).digest();
+  const hb = createHmac("sha256", COMPARE_KEY).update(b).digest();
+  return timingSafeEqual(ha, hb);
 }
 
 /** Resolve a user from `Authorization: Bearer <apiKey>` or the BetterAuth session cookie. */
@@ -72,10 +78,14 @@ export async function resolveUser(
   const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (bearer) {
     const keys = config.auth?.apiKeys ?? [];
-    const match = keys.find((k) => safeEqual(k.key, bearer));
+    let matchIndex = -1;
+    for (let i = 0; i < keys.length; i++) {
+      if (safeEqual(keys[i]!.key, bearer) && matchIndex === -1) matchIndex = i;
+    }
     // An invalid API key is never silently downgraded to cookie auth.
-    if (!match) return null;
-    const name = match.name ?? `key-${keys.indexOf(match)}`;
+    if (matchIndex === -1) return null;
+    const match = keys[matchIndex]!;
+    const name = match.name ?? `key-${matchIndex}`;
     return { id: `apikey:${name}`, email: "", name, role: match.role };
   }
   if (!auth) return null;

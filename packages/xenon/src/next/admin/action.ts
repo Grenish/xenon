@@ -205,6 +205,62 @@ export async function runAdminAction(config: XenonConfig, input: AdminActionInpu
   }
 }
 
+const USER_LIST_PAGE_SIZE = 200;
+const USER_LIST_MAX = 10_000;
+
+interface RawAdminUser {
+  id: string;
+  email: string;
+  name?: string | null;
+  role?: string | null;
+  createdAt: Date | string;
+}
+
+/** Page through BetterAuth `listUsers` so large teams aren't silently truncated at 200. */
+export async function listAllUsers(
+  listUsers: (args: { query: { limit: number; offset: number; sortBy: string; sortDirection: string }; headers: Headers }) => Promise<{ users?: RawAdminUser[]; total?: number }>,
+  headers: Headers,
+  pageSize = USER_LIST_PAGE_SIZE,
+  maxUsers = USER_LIST_MAX,
+): Promise<(AdminUserInfo & { createdAt: string })[]> {
+  const step = Math.max(1, pageSize);
+  const byId = new Map<string, AdminUserInfo & { createdAt: string }>();
+  let offset = 0;
+  let truncated = false;
+  while (byId.size < maxUsers) {
+    const limit = Math.min(step, maxUsers - byId.size);
+    const res = await listUsers({ query: { limit, offset, sortBy: "createdAt", sortDirection: "asc" }, headers });
+    const batch = res.users ?? [];
+    for (const u of batch) {
+      if (byId.size >= maxUsers && !byId.has(u.id)) {
+        truncated = true;
+        break;
+      }
+      byId.set(u.id, {
+        id: u.id,
+        email: u.email,
+        name: u.name ?? null,
+        role: toRole(u.role),
+        createdAt: new Date(u.createdAt).toISOString(),
+      });
+    }
+    const total = typeof res.total === "number" ? res.total : undefined;
+    const moreRemaining = total !== undefined ? offset + batch.length < total : batch.length === limit;
+    if (batch.length === 0 || !moreRemaining) break;
+    offset += batch.length;
+    if (byId.size >= maxUsers) {
+      truncated = true;
+      break;
+    }
+  }
+  if (truncated) {
+    console.warn(`[xenon] users.list reached maximum safety limit (${maxUsers}); remaining users were omitted.`);
+  }
+  return [...byId.values()].sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+}
+
 /** Internal dispatcher taking explicit headers (used by `AdminPage` SSR and tests). */
 export async function dispatchAdminAction(config: XenonConfig, input: AdminActionInput, headers: Headers): Promise<AdminActionResult> {
   try {
@@ -333,15 +389,9 @@ export async function dispatchAdminAction(config: XenonConfig, input: AdminActio
 
       case "users.list": {
         requireAdmin();
-        const res = await api.listUsers!({ query: { limit: 200, sortBy: "createdAt", sortDirection: "asc" }, headers });
-        const users: (AdminUserInfo & { createdAt: string })[] = (res.users ?? []).map(
-          (u: { id: string; email: string; name?: string | null; role?: string | null; createdAt: Date | string }) => ({
-            id: u.id,
-            email: u.email,
-            name: u.name ?? null,
-            role: toRole(u.role),
-            createdAt: new Date(u.createdAt).toISOString(),
-          }),
+        const users = await listAllUsers(
+          api.listUsers! as Parameters<typeof listAllUsers>[0],
+          headers,
         );
         return ok(users);
       }

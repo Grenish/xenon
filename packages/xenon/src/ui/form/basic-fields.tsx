@@ -32,10 +32,14 @@ export function TextareaField(props: FieldInputProps) {
     placeholder={props.field.admin.placeholder} maxLength={props.field.maxLength} onChange={(event) => props.onChange(textValue(event.target.value, props.field))} />;
 }
 
+export function numberInputValue(value: unknown): number | "" {
+  return typeof value === "number" && Number.isFinite(value) ? value : "";
+}
+
 export function NumberField(props: FieldInputProps) {
   return <Input {...controlProps(props)} type="number" inputMode={props.field.integer ? "numeric" : "decimal"}
     min={props.field.min} max={props.field.max} step={props.field.integer ? 1 : "any"} placeholder={props.field.admin.placeholder}
-    value={typeof props.value === "number" ? props.value : ""} onChange={(event) => props.onChange(event.target.value === "" ? null : event.target.valueAsNumber)} />;
+    value={numberInputValue(props.value)} onChange={(event) => props.onChange(event.target.value === "" ? null : event.target.valueAsNumber)} />;
 }
 
 export function BooleanField(props: FieldInputProps) {

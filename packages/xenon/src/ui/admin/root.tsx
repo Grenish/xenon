@@ -7,7 +7,7 @@ import { AdminProvider } from "../shared/admin-context";
 import type { ClientCollection } from "../shared/client-config";
 import type { AdminUserInfo } from "../shared/services";
 import { type AdminAction, AdminRuntimeProvider, useServices } from "./runtime";
-import { type AdminTheme, useAdminTheme, useSystemDark } from "./theme-store";
+import { acquireColorScheme, type AdminTheme, applyColorScheme, useAdminTheme, useSystemDark } from "./theme-store";
 import { PresenceHeartbeat } from "./presence";
 import { AdminShell } from "./shell";
 
@@ -46,11 +46,9 @@ export function AdminRoot({ theme, basePath, apiPath, action, collections, user,
   // "system" is handled in CSS (prefers-color-scheme on [data-theme="system"]); this feeds the Toaster
   // and the page's color-scheme (scrollbars, form controls, overscroll area).
   const dark = current === "dark" || (current === "system" && systemDark);
+  useEffect(() => acquireColorScheme(document.documentElement), []);
   useEffect(() => {
-    const root = document.documentElement;
-    const previous = root.style.colorScheme;
-    root.style.colorScheme = dark ? "dark" : "light";
-    return () => { root.style.colorScheme = previous; };
+    applyColorScheme(document.documentElement, dark);
   }, [dark]);
 
   return (
