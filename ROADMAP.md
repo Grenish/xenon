@@ -7,6 +7,8 @@
 - **Framework-agnostic Web-Standard core** (Next.js flagship + Hono/Bun/Deno/Workers, Astro, TanStack Start, SvelteKit/Nuxt/Express recipes)
 - **AI-native authoring** (`xenon-cms/mcp`) and an editorial UI teams enjoy
 
+**Status (2026-11-25):** P0 is done. P1 is in progress: framework decoupling and the new field types have shipped.
+
 Live progress is tracked on the **[XenonCMS v1.0 Roadmap Board](https://github.com/users/Grenish/projects/5)**, in the pinned umbrella issue **[#29 — XenonCMS v1.0 Roadmap](https://github.com/Grenish/xenon/issues/29)**, and across the GitHub [Milestones](https://github.com/Grenish/xenon/milestones).
 
 ---
@@ -15,20 +17,24 @@ Live progress is tracked on the **[XenonCMS v1.0 Roadmap Board](https://github.c
 
 Turn the audited baseline into an installable, CI-verified `0.1.0` release.
 
-- [#5](https://github.com/Grenish/xenon/issues/5) — Fix remaining Low audit bugs (#23–#28)
-- [#6](https://github.com/Grenish/xenon/issues/6) — Add GitHub Actions CI, Changesets release workflow & reproducible benchmarks
-- [#7](https://github.com/Grenish/xenon/issues/7) — Ship `npx xenon-cms init` CLI & `create-xenon-app` with pluggable framework templates
+**Status: ✅ Done.**
+
+- ✅ [#5](https://github.com/Grenish/xenon/issues/5) — Fix remaining Low audit bugs (#23–#28)
+- ✅ [#6](https://github.com/Grenish/xenon/issues/6) — Add GitHub Actions CI, Changesets release workflow & reproducible benchmarks
+- ✅ [#7](https://github.com/Grenish/xenon/issues/7) — Ship `npx xenon-cms init` CLI & `create-xenon-app` with pluggable framework templates
 
 ## [P1: Modeling, Query, Hooks & Core HTTP](https://github.com/Grenish/xenon/milestone/2)
 
 Decouple the HTTP/UI core first (`P1a`), then remove the MVP modeling and querying ceiling.
 
-- [#8](https://github.com/Grenish/xenon/issues/8) — `[P1a]` Framework decoupling: `xenon-cms/http`, `AdminRouter`, HTTP admin transport & `xenon-cms/html`
-- [#9](https://github.com/Grenish/xenon/issues/9) — Composite & essential fields: `date`, `email`, `url`, `json`, `group`, `array`, `defineBlock()` + `blocks()`
+**Status: 🚧 In progress.**
+
+- ✅ [#8](https://github.com/Grenish/xenon/issues/8) — `[P1a]` Framework decoupling: `xenon-cms/http`, `AdminRouter`, HTTP admin transport & `xenon-cms/html` (shipped in [#38](https://github.com/Grenish/xenon/pull/38))
+- 🚧 [#9](https://github.com/Grenish/xenon/issues/9) — Composite & essential fields: `date`, `email`, `url`, `json`, `group`, `array`, `defineBlock()` + `blocks()` (fields shipped in [#37](https://github.com/Grenish/xenon/pull/37); `admin.condition` in review in [#40](https://github.com/Grenish/xenon/pull/40); editable slug override next; `unique: true` moved to #11)
 - [#10](https://github.com/Grenish/xenon/issues/10) — Globals / Singletons (`defineGlobal`)
-- [#11](https://github.com/Grenish/xenon/issues/11) — Typed batched `populate`, `select` projection, nested `where` & opt-in JSONB expression indexes
+- [#11](https://github.com/Grenish/xenon/issues/11) — Typed batched `populate`, `select` projection, nested `where` & opt-in JSONB expression indexes (also `unique: true`, moved from #9)
 - [#12](https://github.com/Grenish/xenon/issues/12) — Collection & field lifecycle hooks (`beforeValidate`, `beforeChange`, `afterChange`, `afterRead`, `beforeDelete`)
-- [#13](https://github.com/Grenish/xenon/issues/13) — Presigned direct-to-S3/R2 uploads with `HEAD` + Range-`GET` security & dimension guardrail
+- 🚧 [#13](https://github.com/Grenish/xenon/issues/13) — Presigned direct-to-S3/R2 uploads with `HEAD` + Range-`GET` security & dimension guardrail
 
 ## [P2: Editorial Experience](https://github.com/Grenish/xenon/milestone/3)
 
