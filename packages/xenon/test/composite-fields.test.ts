@@ -290,8 +290,92 @@ describe("Local API round trip", () => {
       overrideAccess: true,
       data: { seo: { title: "Welcome" } },
     });
-    // Whole-group replacement, with nested defaults re-applied.
     expect(updated.seo).toEqual({ title: "Welcome", noIndex: false });
     expect(updated.layout[0]!.id).toBe(layoutId);
+  });
+});
+
+describe("partial updates", () => {
+  const settings = defineCollection({
+    slug: "settings",
+    fields: {
+      title: text(),
+      seo: group({
+        fields: {
+          title: text(),
+          noIndex: boolean({ defaultValue: false }),
+          og: group({ fields: { image: url(), alt: text() } }),
+        },
+      }),
+      links: array({ fields: { label: text() } }),
+      meta: json(),
+      layout: blocks({ blocks: [hero, quote] }),
+    },
+  });
+  const setup = async () => {
+    const db = memoryAdapter();
+    const xenon = createXenon(defineConfig({ collections: [settings], db }));
+    const doc = await xenon.create({
+      collection: "settings",
+      overrideAccess: true,
+      data: {
+        title: "Site",
+        seo: { title: "Home", og: { image: "https://img.dev/a.png", alt: "A" } },
+        links: [{ label: "one" }, { label: "two" }],
+        meta: { a: 1, b: 2 },
+      },
+    });
+    return { db, xenon, doc };
+  };
+
+  test("groups merge recursively instead of replacing", async () => {
+    const { xenon, doc } = await setup();
+    const updated = await xenon.update({ collection: "settings", id: doc.id, overrideAccess: true, data: { seo: { noIndex: true, og: { alt: "B" } } } });
+    expect(updated.seo).toEqual({ title: "Home", noIndex: true, og: { image: "https://img.dev/a.png", alt: "B" } });
+    expect(updated.title).toBe("Site");
+  });
+
+  test("null clears one nested value; null on a group resets it to defaults", async () => {
+    const { xenon, doc } = await setup();
+    const cleared = await xenon.update({ collection: "settings", id: doc.id, overrideAccess: true, data: { seo: { title: null } } });
+    expect(cleared.seo).toEqual({ title: null, noIndex: false, og: { image: "https://img.dev/a.png", alt: "A" } });
+    const reset = await xenon.update({ collection: "settings", id: doc.id, overrideAccess: true, data: { seo: null } });
+    expect(reset.seo).toEqual({ noIndex: false, og: {} });
+  });
+
+  test("arrays and json are replaced wholesale", async () => {
+    const { xenon, doc } = await setup();
+    const updated = await xenon.update({ collection: "settings", id: doc.id, overrideAccess: true, data: { links: [{ label: "only" }], meta: { c: 3 } } });
+    expect(updated.links.map((l) => l.label)).toEqual(["only"]);
+    expect(updated.meta).toEqual({ c: 3 });
+  });
+
+  test("drafts merge against the working copy", async () => {
+    const { xenon, doc } = await setup();
+    await xenon.update({ collection: "settings", id: doc.id, draft: true, overrideAccess: true, data: { seo: { title: "Draft title" } } });
+    const draft = await xenon.update({ collection: "settings", id: doc.id, draft: true, overrideAccess: true, data: { seo: { noIndex: true } } });
+    expect(draft.seo).toMatchObject({ title: "Draft title", noIndex: true });
+    const live = await xenon.findById({ collection: "settings", id: doc.id, overrideAccess: true });
+    expect(live!.seo.title).toBe("Home");
+  });
+
+  test("documents written under an older schema still update (removed nested fields and block types)", async () => {
+    const { db, xenon, doc } = await setup();
+    const record = (await db.findById("settings", doc.id))!;
+    await db.update("settings", doc.id, {
+      data: {
+        ...record.data,
+        seo: { ...(record.data.seo as object), removedField: "x" },
+        links: [{ id: "r1", label: "kept", gone: true }],
+        layout: [{ id: "b1", blockType: "hero", heading: "Hi", oldProp: 1 }, { id: "b2", blockType: "deletedType", x: 1 }],
+      },
+    });
+    const read = await xenon.findById({ collection: "settings", id: doc.id, overrideAccess: true });
+    expect(read!.layout.map((b) => b.id)).toEqual(["b1"]);
+    const updated = await xenon.update({ collection: "settings", id: doc.id, overrideAccess: true, data: { title: "Renamed" } });
+    expect(updated.title).toBe("Renamed");
+    expect(updated.seo).not.toHaveProperty("removedField");
+    expect(updated.links).toEqual([{ id: "r1", label: "kept" }]);
+    expect(updated.layout).toEqual([{ id: "b1", blockType: "hero", heading: "Hi" }]);
   });
 });
