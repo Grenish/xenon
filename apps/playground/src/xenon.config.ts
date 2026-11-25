@@ -58,8 +58,10 @@ const hero = defineBlock({
   fields: {
     heading: text({ required: true }),
     subheading: textarea({ rows: 2 }),
+    variant: select({ options: ["centered", "split"], defaultValue: "centered" }),
+    image: media({ relationTo: "media", admin: { condition: { variant: { equals: "split" } } } }),
     ctaLabel: text(),
-    ctaHref: url(),
+    ctaHref: url({ required: true, admin: { condition: { ctaLabel: { exists: true } } } }),
   },
 });
 

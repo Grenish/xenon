@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { evaluateCondition } from "./condition";
 import { newRowId } from "./row-id";
 import type {
   AnyBlock,
   AnyCollection,
   Field,
+  FieldCondition,
   FieldsMap,
   InferCreateInput,
   InferDraftInput,
@@ -335,7 +337,18 @@ interface ObjectExtras {
 function fieldsSchema(fieldsMap: FieldsMap, mode: ValidationMode, extras: ObjectExtras = {}): z.ZodType {
   const fields = fieldsMap as Record<string, Field>;
   const shape: Record<string, z.ZodType> = {};
-  for (const [key, field] of Object.entries(fields)) shape[key] = fieldSchema(field, mode);
+  // Fields with an `admin.condition` are checked after the object parse, against their siblings:
+  // shown → the field's normal rules; hidden → draft rules (type/format only, no required or minimums).
+  const conditional = new Map<string, { condition: FieldCondition; shown: z.ZodType; hidden: z.ZodType }>();
+  for (const [key, field] of Object.entries(fields)) {
+    const condition = field.admin?.condition;
+    if (condition === undefined) {
+      shape[key] = fieldSchema(field, mode);
+    } else {
+      shape[key] = z.unknown().optional();
+      conditional.set(key, { condition, shown: fieldSchema(field, mode), hidden: fieldSchema(field, "draft") });
+    }
+  }
   if (extras.row) shape.id = rowIdSchema.optional();
   if (extras.blockType !== undefined) shape.blockType = z.literal(extras.blockType);
   const objectSchema = z.strictObject(shape);
@@ -345,23 +358,39 @@ function fieldsSchema(fieldsMap: FieldsMap, mode: ValidationMode, extras: Object
     z.unknown().transform((input, ctx) => {
       const parsed = objectSchema.safeParse(input);
       let ok = parsed.success;
+      const record = typeof input === "object" && input !== null && !Array.isArray(input) ? (input as Record<string, unknown>) : null;
+      const isMissing = (key: unknown) =>
+        typeof key === "string" && Object.hasOwn(fields, key) && (record?.[key] === undefined || record?.[key] === null);
       if (!parsed.success) {
-        const record = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
         for (const issue of parsed.error.issues) {
           // A missing / null value on a required field reads better as "required" than as a type error.
           const key = issue.path.length === 1 ? issue.path[0] : undefined;
-          const missing =
-            typeof key === "string" && Object.hasOwn(fields, key) && (record[key] === undefined || record[key] === null);
-          const message = missing ? "This field is required" : issue.message;
-          ctx.addIssue({ ...issue, message, input: undefined } as never);
+          ctx.addIssue({ ...issue, message: isMissing(key) ? "This field is required" : issue.message, input: undefined } as never);
         }
       }
-      if (typeof input === "object" && input !== null && !Array.isArray(input)) {
-        const record = input as Record<string, unknown>;
+      const out: Record<string, unknown> = parsed.success ? { ...(parsed.data as Record<string, unknown>) } : {};
+      const hiddenKeys = new Set<string>();
+      if (record) {
+        for (const [key, rule] of conditional) {
+          const shown = evaluateCondition(rule.condition, record);
+          if (!shown) hiddenKeys.add(key);
+          const result = (shown ? rule.shown : rule.hidden).safeParse(record[key]);
+          if (result.success) {
+            if (result.data === undefined) delete out[key];
+            else out[key] = result.data;
+            continue;
+          }
+          ok = false;
+          for (const issue of result.error.issues) {
+            const message = issue.path.length === 0 && isMissing(key) ? "This field is required" : issue.message;
+            ctx.addIssue({ ...issue, path: [key, ...issue.path], message, input: undefined } as never);
+          }
+        }
         for (const [key, field] of Object.entries(fields)) {
           const value = record[key];
-          if (!field.validate || value === undefined || value === null) continue;
-          if (!shape[key]!.safeParse(value).success) continue; // built-in check already failed
+          if (!field.validate || value === undefined || value === null || hiddenKeys.has(key)) continue;
+          const builtIn = conditional.get(key)?.shown ?? shape[key]!;
+          if (!builtIn.safeParse(value).success) continue; // built-in check already failed
           const validate = field.validate as (v: unknown, c: { data: Record<string, unknown> }) => true | string;
           const res = validate(value, { data: record });
           if (res !== true) {
@@ -371,9 +400,8 @@ function fieldsSchema(fieldsMap: FieldsMap, mode: ValidationMode, extras: Object
         }
       }
       if (!ok || !parsed.success) return z.NEVER;
-      const data = parsed.data as Record<string, unknown>;
-      if (extras.row && data.id === undefined) return { id: newRowId(), ...data };
-      return data;
+      if (extras.row && out.id === undefined) return { id: newRowId(), ...out };
+      return out;
     }),
   );
 }

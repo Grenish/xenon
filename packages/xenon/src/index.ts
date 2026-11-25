@@ -34,6 +34,7 @@ export {
 } from "./core/validation";
 export type { ValidationIssue, ValidationMode, ValidationResult } from "./core/validation";
 export { SYSTEM_KEYS, UPLOAD_KEYS } from "./core/types";
+export { evaluateCondition } from "./core/condition";
 export type * from "./core/types";
 export type * from "./adapters/types";
 export { SlugConflictError, UpdateConflictError } from "./adapters/types";
