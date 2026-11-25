@@ -47,7 +47,35 @@ export type FieldType =
   | "select"
   | "richText"
   | "media"
-  | "relation";
+  | "relation"
+  | "date"
+  | "email"
+  | "url"
+  | "json"
+  | "group"
+  | "array"
+  | "blocks";
+
+/** Any JSON-serializable value. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+/**
+ * Minimal [Standard Schema](https://standardschema.dev) v1 interface (Zod, Valibot, ArkType…), used to
+ * type and validate `json()` fields. Validation must be synchronous.
+ */
+export interface StandardSchemaV1<Input = unknown, Output = Input> {
+  readonly "~standard": {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly validate: (
+      value: unknown,
+    ) =>
+      | { readonly value: Output; readonly issues?: undefined }
+      | { readonly issues: readonly { readonly message: string; readonly path?: readonly (PropertyKey | { readonly key: PropertyKey })[] }[] }
+      | Promise<unknown>;
+    readonly types?: { readonly input: Input; readonly output: Output } | undefined;
+  };
+}
 
 export interface FieldAdminOptions {
   description?: string;
@@ -91,7 +119,82 @@ export interface NumberFieldOptions extends BaseFieldOptions<number> {
   integer?: boolean;
 }
 
-export interface BooleanFieldOptions extends BaseFieldOptions<boolean> {}
+export interface BooleanFieldOptions extends BaseFieldOptions<boolean> {
+  admin?: FieldAdminOptions & {
+    /** Control shown in the admin. Default `"switch"`. */
+    display?: "switch" | "checkbox";
+  };
+}
+
+export interface DateFieldOptions extends BaseFieldOptions<string> {
+  /** Earliest allowed value (ISO-8601, same format as the field). */
+  min?: string;
+  /** Latest allowed value (ISO-8601, same format as the field). */
+  max?: string;
+}
+
+export interface EmailFieldOptions extends BaseFieldOptions<string> {}
+
+export interface UrlFieldOptions extends BaseFieldOptions<string> {
+  /** Allowed URL schemes, without the colon. Default `["http", "https"]`. */
+  protocols?: readonly string[];
+}
+
+export interface JsonFieldOptions extends BaseFieldOptions<unknown> {
+  /** Optional Standard Schema (e.g. a Zod schema) that types and validates the value. */
+  schema?: StandardSchemaV1;
+}
+
+/** Options shared by `group`, `array` and `blocks`: they hold nested fields, so no `defaultValue` on the container. */
+interface ContainerFieldOptions<V> {
+  label?: string;
+  admin?: FieldAdminOptions;
+  validate?: FieldValidateFn<V>;
+}
+
+export interface GroupFieldOptions<Fs extends FieldsMap = FieldsMap> extends ContainerFieldOptions<Record<string, unknown>> {
+  fields: Fs;
+  /** Not supported: a group is required exactly when one of its fields is. */
+  required?: never;
+  /** Not supported: set defaults on the group's fields. */
+  defaultValue?: never;
+}
+
+export interface ArrayFieldOptions<Fs extends FieldsMap = FieldsMap> extends ContainerFieldOptions<Record<string, unknown>[]> {
+  fields: Fs;
+  /** `true` → at least one row. */
+  required?: boolean;
+  minRows?: number;
+  maxRows?: number;
+  labels?: { singular?: string; plural?: string };
+  defaultValue?: readonly Record<string, unknown>[];
+}
+
+/** A block type for `blocks()`, created with `defineBlock()`. */
+export interface BlockConfig<Slug extends string = string, Fs extends FieldsMap = FieldsMap> {
+  slug: Slug;
+  labels?: { singular?: string; plural?: string };
+  fields: Fs;
+  admin?: { description?: string };
+}
+
+/** Any block, regardless of its generics. */
+export interface AnyBlock {
+  slug: string;
+  labels?: { singular?: string; plural?: string };
+  fields: FieldsMap;
+  admin?: { description?: string };
+}
+
+export interface BlocksFieldOptions<Bs extends readonly AnyBlock[] = readonly AnyBlock[]>
+  extends ContainerFieldOptions<Record<string, unknown>[]> {
+  blocks: Bs;
+  /** `true` → at least one block. */
+  required?: boolean;
+  minRows?: number;
+  maxRows?: number;
+  defaultValue?: readonly Record<string, unknown>[];
+}
 
 export type SelectOption = string | { readonly label: string; readonly value: string };
 
@@ -130,6 +233,17 @@ export type MediaField<O extends RelationshipFieldOptions = RelationshipFieldOpt
 export type RelationField<O extends RelationshipFieldOptions = RelationshipFieldOptions> = {
   readonly type: "relation";
 } & O;
+export type DateField<O extends DateFieldOptions = DateFieldOptions> = {
+  readonly type: "date";
+  /** `true` (via `datetime()`): a full ISO-8601 timestamp, stored in UTC. Otherwise `YYYY-MM-DD`. */
+  readonly time?: boolean;
+} & O;
+export type EmailField<O extends EmailFieldOptions = EmailFieldOptions> = { readonly type: "email" } & O;
+export type UrlField<O extends UrlFieldOptions = UrlFieldOptions> = { readonly type: "url" } & O;
+export type JsonField<O extends JsonFieldOptions = JsonFieldOptions> = { readonly type: "json" } & O;
+export type GroupField<O extends GroupFieldOptions = GroupFieldOptions> = { readonly type: "group" } & O;
+export type ArrayField<O extends ArrayFieldOptions = ArrayFieldOptions> = { readonly type: "array" } & O;
+export type BlocksField<O extends BlocksFieldOptions = BlocksFieldOptions> = { readonly type: "blocks" } & O;
 
 export type Field =
   | TextField
@@ -139,7 +253,14 @@ export type Field =
   | SelectField
   | RichTextField
   | MediaField
-  | RelationField;
+  | RelationField
+  | DateField
+  | EmailField
+  | UrlField
+  | JsonField
+  | GroupField
+  | ArrayField
+  | BlocksField;
 
 export type FieldsMap = { readonly [key: string]: Field };
 
@@ -274,8 +395,30 @@ type SelectOptionValue<O> = O extends string ? O : O extends { value: infer V ex
 
 type Many<F, V> = F extends { hasMany: true } ? V[] : V;
 
-/** The value type stored for a single field. */
-export type InferFieldValue<F> = F extends { type: "text" | "textarea" }
+/** Which shape of a value to infer: as read, as accepted on create, or as accepted in a draft. */
+type InferMode = "read" | "create" | "draft";
+
+type FieldsValue<Fs, M extends InferMode> = M extends "read"
+  ? InferFieldsData<Fs>
+  : M extends "create"
+    ? InferFieldsCreateInput<Fs>
+    : InferFieldsDraftInput<Fs>;
+
+/** Rows carry a stable `id` (generated on write when omitted). */
+type RowId<M extends InferMode> = M extends "read" ? { id: string } : { id?: string };
+
+type BlockValue<B, M extends InferMode> = B extends { slug: infer S extends string; fields: infer Fs }
+  ? Prettify<{ blockType: S } & RowId<M> & FieldsValue<Fs, M>>
+  : never;
+
+type SchemaOutput<S> = S extends { readonly "~standard": { readonly types?: infer T } }
+  ? NonNullable<T> extends { readonly output: infer O }
+    ? O
+    : JsonValue
+  : JsonValue;
+
+/** The value type stored for a single field (`M`: read shape, create input or draft input). */
+export type InferFieldValue<F, M extends InferMode = "read"> = F extends { type: "text" | "textarea" | "email" | "url" | "date" }
   ? string
   : F extends { type: "number" }
     ? number
@@ -287,23 +430,45 @@ export type InferFieldValue<F> = F extends { type: "text" | "textarea" }
           ? RichTextDocument
           : F extends { type: "media" | "relation" }
             ? Many<F, string>
-            : never;
+            : F extends { type: "json" }
+              ? F extends { schema: infer S } ? SchemaOutput<S> : JsonValue
+              : F extends { type: "group"; fields: infer Fs }
+                ? FieldsValue<Fs, M>
+                : F extends { type: "array"; fields: infer Fs }
+                  ? Prettify<RowId<M> & FieldsValue<Fs, M>>[]
+                  : F extends { type: "blocks"; blocks: readonly (infer B)[] }
+                    ? BlockValue<B, M>[]
+                    : never;
 
 type IsRequired<F> = F extends { required: true } ? true : false;
 type HasDefault<F> = F extends { defaultValue: infer D } ? (undefined extends D ? false : true) : false;
+/** `group`, `array` and `blocks` always read as a value (`{}` / `[]` when nothing is stored). */
+type IsContainer<F> = F extends { type: "group" | "array" | "blocks" } ? true : false;
+/** A group must be supplied on create when any of its own fields must be. */
+type GroupRequired<F> = F extends { type: "group"; fields: infer Fs }
+  ? [CreateRequiredKeys<Fs>] extends [never] ? false : true
+  : false;
 
 /** Keys always present (non-null) when reading a document. */
 type ReadPresentKeys<Fs> = {
-  [K in keyof Fs]: IsRequired<Fs[K]> extends true ? K : HasDefault<Fs[K]> extends true ? K : never;
+  [K in keyof Fs]: IsRequired<Fs[K]> extends true
+    ? K
+    : HasDefault<Fs[K]> extends true
+      ? K
+      : IsContainer<Fs[K]> extends true
+        ? K
+        : never;
 }[keyof Fs];
 
 /** Keys that must be supplied on create. */
 type CreateRequiredKeys<Fs> = {
-  [K in keyof Fs]: IsRequired<Fs[K]> extends true
-    ? HasDefault<Fs[K]> extends true
-      ? never
-      : K
-    : never;
+  [K in keyof Fs]: GroupRequired<Fs[K]> extends true
+    ? K
+    : IsRequired<Fs[K]> extends true
+      ? HasDefault<Fs[K]> extends true
+        ? never
+        : K
+      : never;
 }[keyof Fs];
 
 export type InferFieldsData<Fs> = Prettify<
@@ -313,12 +478,19 @@ export type InferFieldsData<Fs> = Prettify<
 >;
 
 export type InferFieldsCreateInput<Fs> = Prettify<
-  { -readonly [K in CreateRequiredKeys<Fs>]: InferFieldValue<Fs[K]> } & {
+  { -readonly [K in CreateRequiredKeys<Fs>]: InferFieldValue<Fs[K], "create"> } & {
     -readonly [K in Exclude<keyof Fs, CreateRequiredKeys<Fs>>]?: IsRequired<Fs[K]> extends true
-      ? InferFieldValue<Fs[K]>
-      : InferFieldValue<Fs[K]> | null;
+      ? InferFieldValue<Fs[K], "create">
+      : IsContainer<Fs[K]> extends true
+        ? InferFieldValue<Fs[K], "create">
+        : InferFieldValue<Fs[K], "create"> | null;
   }
 >;
+
+/** Draft input: every field optional and nullable (drafts may be incomplete), recursively. */
+export type InferFieldsDraftInput<Fs> = Prettify<{
+  -readonly [K in keyof Fs]?: InferFieldValue<Fs[K], "draft"> | null;
+}>;
 
 /** Metadata managed by the storage layer on upload collections. */
 export interface UploadData {
@@ -360,9 +532,7 @@ export type InferCollectionType<C extends AnyCollection> = Prettify<
 export type InferCreateInput<C extends AnyCollection> = InferFieldsCreateInput<FieldsOf<C>>;
 
 /** Output of draft-mode validation: every field optional and nullable (drafts may be incomplete). */
-export type InferDraftInput<C extends AnyCollection> = Prettify<{
-  -readonly [K in keyof FieldsOf<C>]?: InferFieldValue<FieldsOf<C>[K]> | null;
-}>;
+export type InferDraftInput<C extends AnyCollection> = InferFieldsDraftInput<FieldsOf<C>>;
 
 /** Input accepted when updating a document. */
 export type InferUpdateInput<C extends AnyCollection> = Prettify<Partial<InferCreateInput<C>>>;
@@ -370,6 +540,9 @@ export type InferUpdateInput<C extends AnyCollection> = Prettify<Partial<InferCr
 type CollectionsOf<Cfg> = Cfg extends { collections: infer Cs extends readonly AnyCollection[] }
   ? Cs[number]
   : never;
+
+/** A block value as read (`{ id, blockType, ...fields }`). */
+export type InferBlockType<B extends AnyBlock> = BlockValue<B, "read">;
 
 /** Union of collection slugs in a config. */
 export type CollectionSlug<Cfg> = CollectionsOf<Cfg>["slug"];

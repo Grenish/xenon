@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef } from "react";
 import { Input } from "../components/input";
 import { Textarea } from "../components/textarea";
 import { Switch } from "../components/switch";
+import { Checkbox } from "../components/checkbox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../components/select";
 import { ToggleGroup, ToggleGroupItem } from "../components/toggle-group";
 import type { FieldInputProps } from "./field-types";
@@ -43,6 +44,10 @@ export function NumberField(props: FieldInputProps) {
 }
 
 export function BooleanField(props: FieldInputProps) {
+  if (props.field.admin.display === "checkbox") {
+    // Wrapped: the field row stretches its direct children to full width.
+    return <div className="xe:flex"><Checkbox {...controlProps(props)} checked={props.value === true} onCheckedChange={(checked) => props.onChange(checked === true)} /></div>;
+  }
   return <Switch {...controlProps(props)} checked={props.value === true} onCheckedChange={(checked) => props.onChange(checked)} />;
 }
 

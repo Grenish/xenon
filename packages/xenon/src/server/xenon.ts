@@ -3,6 +3,7 @@ import { matchesOperators } from "../adapters/match";
 import type { DatabaseAdapter, DocumentRecord, StorageAdapter, Where, WhereOperators } from "../adapters/types";
 import { SlugConflictError, UpdateConflictError } from "../adapters/types";
 import { createXenonAuth, resolveUser } from "../auth";
+import { mergeUpdate, pruneToFields, withReadDefaults } from "../core/defaults";
 import { XenonError } from "../core/errors";
 import type { AnyCollection, Field, XenonConfig, XenonUser } from "../core/types";
 import { UPLOAD_KEYS } from "../core/types";
@@ -49,17 +50,6 @@ function slugSuffix(slug: string, base: string): number | null {
 const isUpload = (c: AnyCollection) => c.upload !== undefined && c.upload !== false;
 const draftsEnabled = (c: AnyCollection) => c.drafts !== false && !isUpload(c);
 const fieldsOf = (c: AnyCollection) => c.fields as Record<string, Field>;
-
-function cloneValue<T>(v: T): T {
-  return typeof v === "object" && v !== null ? structuredClone(v) : v;
-}
-
-/** Keeps only declared fields (drops keys of removed fields and internal metadata). */
-function pickFields(collection: AnyCollection, data: AnyDoc): AnyDoc {
-  const out: AnyDoc = {};
-  for (const key of Object.keys(fieldsOf(collection))) if (key in data) out[key] = data[key];
-  return out;
-}
 
 function pickUploadMeta(data: AnyDoc): AnyDoc {
   const out: AnyDoc = {};
@@ -129,12 +119,7 @@ export function createXenon<Cfg extends XenonConfig>(
 
   function toDoc(collection: AnyCollection, record: DocumentRecord, draft: boolean): AnyDoc {
     const source = draft ? (record.draftData ?? record.data) : record.data;
-    const fields = pickFields(collection, source);
-    for (const [key, field] of Object.entries(fieldsOf(collection))) {
-      if (field.defaultValue !== undefined && (fields[key] === undefined || fields[key] === null)) {
-        fields[key] = cloneValue(field.defaultValue);
-      }
-    }
+    const fields = withReadDefaults(collection.fields, source);
     const doc: AnyDoc = {
       id: record.id,
       slug: record.slug,
@@ -356,8 +341,9 @@ export function createXenon<Cfg extends XenonConfig>(
           { path: [], message: "Expected an object" },
         ]);
       }
-      // Validate the merged document so required-field rules see the whole picture.
-      const merged = { ...pickFields(collection, working), ...(o.data as AnyDoc) };
+      // Validate the merged document so required-field rules see the whole picture. Groups merge
+      // recursively; stored data is first trimmed to the current schema (fields may have been removed).
+      const merged = mergeUpdate(collection.fields, pruneToFields(collection.fields, working), o.data as AnyDoc);
       const data = validate(collection, merged, asDraft ? "draft" : "create");
 
       let stored: (PreparedUpload & { url: string }) | null = null;
