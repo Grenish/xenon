@@ -122,17 +122,21 @@ export class S3StorageAdapter implements StorageAdapter {
     if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start) {
       throw new RangeError(`[xenon] Invalid byte range: ${start}-${end}.`);
     }
-    const response = await fetch(await this.client.sign(this.objectUrl(key), {
+    const signed = await this.client.sign(this.objectUrl(key), {
       method: "GET",
       headers: { range: `bytes=${start}-${end}` },
-    }));
+    });
+    const controller = new AbortController();
+    const response = await fetch(signed, { signal: controller.signal });
     if (response.status === 404) return null;
     // S3/R2 returns 416 Range Not Satisfiable for empty (0-byte) objects.
     if (response.status === 416) return new Uint8Array(0);
     if (!response.ok) throw new Error(`[xenon] S3 range read failed (${response.status}).`);
 
     const maxBytes = end - start + 1;
-    if (!response.body) {
+    const rawLength = response.headers.get("content-length");
+    const declaredLength = rawLength !== null ? Number(rawLength) : NaN;
+    if (!response.body || (Number.isFinite(declaredLength) && declaredLength >= 0 && declaredLength <= maxBytes)) {
       const buf = new Uint8Array(await response.arrayBuffer());
       return buf.byteLength > maxBytes ? buf.subarray(0, maxBytes) : buf;
     }
@@ -149,7 +153,10 @@ export class S3StorageAdapter implements StorageAdapter {
         chunks.push(slice);
         total += slice.byteLength;
         if (total >= maxBytes) {
-          await reader.cancel().catch(() => {});
+          // Do not await cancel(): tee'd streams (e.g. Next.js patched fetch) can block cancel()
+          // until the sibling branch drains or is GC'd; aborting tears down the socket immediately.
+          void reader.cancel().catch(() => {});
+          controller.abort();
           break;
         }
       }

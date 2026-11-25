@@ -186,4 +186,35 @@ describe("S3StorageAdapter (signed requests, no network)", () => {
     await expect(storage.readRange("media/a.png", -1, 10)).rejects.toThrow(RangeError);
     await expect(storage.readRange("media/a.png", 10, 5)).rejects.toThrow(RangeError);
   });
+
+  test("readRange does not deadlock when fetch returns a tee'd stream (Next.js patch-fetch regression)", async () => {
+    fetchSpy.mockRestore();
+    let mode: "bounded-206" | "oversized-tee" = "bounded-206";
+    let aborted = false;
+    const fakeFetch = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      init?.signal?.addEventListener("abort", () => { aborted = true; });
+      const source = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(mode === "bounded-206" ? [1, 2, 3, 4] : new Array(32).fill(7)));
+          if (mode === "bounded-206") controller.close();
+        },
+      });
+      // Leave sibling branch unconsumed (mirrors Next.js cloneResponse tee where cancel() blocks on the sibling).
+      const [_unconsumed, branch] = source.tee();
+      void _unconsumed;
+      return new Response(branch, {
+        status: mode === "bounded-206" ? 206 : 200,
+        headers: mode === "bounded-206" ? { "content-length": "4" } : undefined,
+      });
+    }, { preconnect: globalThis.fetch.preconnect });
+    fetchSpy = spyOn(globalThis, "fetch").mockImplementation(fakeFetch);
+
+    const storage = new S3StorageAdapter(options);
+    expect(await storage.readRange("media/a.png", 0, 3)).toEqual(new Uint8Array([1, 2, 3, 4]));
+
+    mode = "oversized-tee";
+    const capped = await storage.readRange("media/big.bin", 0, 9);
+    expect(capped?.byteLength).toBe(10);
+    expect(aborted).toBe(true);
+  });
 });
