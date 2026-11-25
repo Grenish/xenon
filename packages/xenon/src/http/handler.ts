@@ -73,6 +73,17 @@ async function readForm(request: Request, maxFileSize?: number): Promise<FormDat
   }
 }
 
+/**
+ * Lifts a top-level `slug` out of the body into the Local API `slug` option (a string sets it by hand,
+ * `null` switches back to automatic). `slug` is a system key, so no field can be named that.
+ */
+function liftSlug(body: { data: RuntimeInput; file?: UploadFile }): { data: RuntimeInput; file?: UploadFile; slug?: string | null } {
+  if (!Object.hasOwn(body.data, "slug")) return body;
+  const { slug, ...data } = body.data as Record<string, unknown>;
+  if (slug !== null && typeof slug !== "string") throw new XenonError("BAD_REQUEST", "slug must be a string or null.");
+  return { ...body, data: data as RuntimeInput, slug };
+}
+
 async function parseBody(request: Request, maxFileSize?: number): Promise<{ data: RuntimeInput; file?: UploadFile }> {
   const contentType = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
   if (contentType === "application/json") {
@@ -375,11 +386,11 @@ export async function handleApiSegments(
       case "POST": {
         if (id && action === "unpublish") return Response.json(await xenon.unpublish({ ...shared, id }));
         if (id) throw new XenonError("NOT_FOUND", "Route not found.");
-        return Response.json(await xenon.create({ ...shared, ...await parseBody(request, maxFileSize), draft: parseDraft(params) }), { status: 201 });
+        return Response.json(await xenon.create({ ...shared, ...liftSlug(await parseBody(request, maxFileSize)), draft: parseDraft(params) }), { status: 201 });
       }
       case "PATCH": {
         if (!id) throw new XenonError("NOT_FOUND", "Route not found.");
-        return Response.json(await xenon.update({ ...shared, id, ...await parseBody(request, maxFileSize), draft: parseDraft(params), expectedUpdatedAt: parseIfMatch(request) }));
+        return Response.json(await xenon.update({ ...shared, id, ...liftSlug(await parseBody(request, maxFileSize)), draft: parseDraft(params), expectedUpdatedAt: parseIfMatch(request) }));
       }
       case "DELETE": {
         if (!id) throw new XenonError("NOT_FOUND", "Route not found.");

@@ -20,6 +20,7 @@ import { adminRoutes, type ActionResult, type AdminDoc } from "../shared/service
 import { FileDropzone } from "./file-dropzone";
 import { FormRenderer } from "./form-renderer";
 import { RichTextEditor } from "./rich-text-editor";
+import { SlugEditor } from "./slug-editor";
 import { Kbd } from "../components/kbd";
 import { richTextToPlainText } from "../../react/rich-text";
 import type { RichTextDocument } from "../../core/types";
@@ -32,6 +33,8 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const [data, setData] = useState<Record<string, unknown>>(() => initialData(collection, doc));
   const [baseline, setBaseline] = useState(() => JSON.stringify(initialData(collection, doc)));
   const [file, setFile] = useState<File | null>(null);
+  /** Unsaved slug edit: a string sets it by hand, `null` = back to automatic, `undefined` = none. */
+  const [slugEdit, setSlugEdit] = useState<string | null | undefined>(undefined);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
   const [pending, setPending] = useState<"save" | "publish" | "unpublish" | "remove" | null>(null);
@@ -44,7 +47,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const alertRef = useRef<HTMLDivElement>(null);
   const actionsButton = useRef<HTMLButtonElement>(null);
   const isDraftsEnabled = collection.drafts && !collection.upload;
-  const dirty = JSON.stringify(data) !== baseline || file !== null;
+  const dirty = JSON.stringify(data) !== baseline || file !== null || slugEdit !== undefined;
   const title = documentTitle(collection, data);
   const canvasId = useId();
   // Document canvas: the title field and the first rich-text field form the writing surface.
@@ -131,7 +134,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
 
   function accept(saved: AdminDoc) {
     const next = initialData(collection, saved);
-    setCurrent(saved); setData(next); setBaseline(JSON.stringify(next)); setFile(null);
+    setCurrent(saved); setData(next); setBaseline(JSON.stringify(next)); setFile(null); setSlugEdit(undefined);
     setFieldErrors({}); setFormError("");
   }
 
@@ -146,7 +149,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     try {
       const payload = normalizeFormData(collection.fields, data);
       const result = collection.upload && file ? await services.upload({ collection: collection.slug, id: current?.id, file, data: payload, expectedUpdatedAt }) :
-        await services.save({ collection: collection.slug, id: current?.id, data: payload, draft, expectedUpdatedAt });
+        await services.save({ collection: collection.slug, id: current?.id, data: payload, draft, expectedUpdatedAt, ...(slugEdit !== undefined ? { slug: slugEdit } : {}) });
       if (!result.ok) {
         if (current && isStale(result)) {
           // Someone saved after we loaded: fetch their version (one read) and let the user decide.
@@ -317,7 +320,11 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
         <h2 className="xe:text-[13px] xe:font-semibold">Publishing</h2>
         <dl className="xe:flex xe:flex-col xe:gap-2.5 xe:text-[13px]">
           {isDraftsEnabled ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-2 xe:sm:hidden"><dt className="xe:text-muted-foreground">Status</dt><dd><StatusBadge status={current?.status ?? "draft"} changed={current?.hasUnpublishedChanges} /></dd></div> : null}
-          {collection.slugFrom || current?.slug ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-3"><dt className="xe:shrink-0 xe:text-muted-foreground">Slug</dt><dd className="xe:min-w-0 xe:truncate xe:font-mono xe:text-xs" title={current?.slug ?? undefined}>{current?.slug ?? <span className="xe:font-sans xe:text-muted-foreground">Set when you save</span>}</dd></div> : null}
+          {collection.slugFrom || current?.slug ? <SlugEditor saved={current?.slug ?? null} live={current?.liveSlug ?? current?.slug ?? null}
+            published={current?.status === "published"}
+            manual={current?.slugManual === true} edit={slugEdit} disabled={locked || !!collection.upload}
+            automaticFrom={collection.slugFrom ? (typeof data[collection.slugFrom] === "string" ? data[collection.slugFrom] as string : "") : null}
+            onEdit={setSlugEdit} /> : null}
           {current ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-3"><dt className="xe:text-muted-foreground">Updated</dt><dd><Tooltip><TooltipTrigger render={<time dateTime={current.updatedAt} tabIndex={0} suppressHydrationWarning />}>{timeAgo(current.updatedAt)}</TooltipTrigger><TooltipContent>{formatDate(current.updatedAt)}</TooltipContent></Tooltip></dd></div> : null}
           {current ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-3"><dt className="xe:text-muted-foreground">Created</dt><dd><Tooltip><TooltipTrigger render={<time dateTime={current.createdAt} tabIndex={0} suppressHydrationWarning />}>{timeAgo(current.createdAt)}</TooltipTrigger><TooltipContent>{formatDate(current.createdAt)}</TooltipContent></Tooltip></dd></div> : null}
         </dl>

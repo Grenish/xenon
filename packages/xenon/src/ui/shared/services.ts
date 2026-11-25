@@ -20,6 +20,10 @@ export interface AdminDoc {
   updatedAt: string;
   /** Published doc with unpublished changes in its working copy. */
   hasUnpublishedChanges: boolean;
+  /** The slug currently in use (differs from `slug` while a slug change awaits publishing). */
+  liveSlug?: string | null;
+  /** The slug was set by hand and no longer follows `slugFrom`. */
+  slugManual?: boolean;
   /** Field values of the working copy (+ upload metadata for upload collections). */
   data: Record<string, unknown>;
 }
@@ -63,7 +67,8 @@ export interface SearchResult {
 
 export interface AdminServices {
   /** Create (no `id`) or update. `draft: true` = save draft, otherwise publish. */
-  save(input: { collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string }): Promise<ActionResult<AdminDoc>>;
+  /** `slug`: a string sets it by hand, `null` switches back to automatic, omitted leaves it alone. */
+  save(input: { collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string; slug?: string | null }): Promise<ActionResult<AdminDoc>>;
   /** Fresh copy of one document (after someone else saved it). */
   get(input: { collection: string; id: string }): Promise<ActionResult<AdminDoc>>;
   unpublish(input: { collection: string; id: string }): Promise<ActionResult<AdminDoc>>;

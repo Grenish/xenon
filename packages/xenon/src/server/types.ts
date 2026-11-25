@@ -77,6 +77,13 @@ export interface CreateOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
   draft?: boolean;
   /** Required for upload collections. */
   file?: UploadFile;
+  /**
+   * Set the slug by hand: normalized with `slugify`, and refused with `CONFLICT` (issue path `slug`)
+   * if another document uses it. A hand-set slug no longer follows `slugFrom`. `null` switches back to
+   * the automatic slug. On a published document, a draft save keeps the change pending: the live slug
+   * changes when the document is next published.
+   */
+  slug?: string | null;
 }
 
 export interface UpdateOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
@@ -86,6 +93,13 @@ export interface UpdateOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
   draft?: boolean;
   /** Replace the stored file (upload collections). */
   file?: UploadFile;
+  /**
+   * Set the slug by hand: normalized with `slugify`, and refused with `CONFLICT` (issue path `slug`)
+   * if another document uses it. A hand-set slug no longer follows `slugFrom`. `null` switches back to
+   * the automatic slug. On a published document, a draft save keeps the change pending: the live slug
+   * changes when the document is next published.
+   */
+  slug?: string | null;
   /**
    * Optimistic concurrency: the `updatedAt` of the version the caller edited. When the document has
    * been saved since, the update is refused with a `CONFLICT` error instead of overwriting.
