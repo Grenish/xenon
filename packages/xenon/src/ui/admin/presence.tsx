@@ -1,9 +1,9 @@
 "use client";
-import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { PresenceLocation, PresencePeer, PresenceSnapshot, PresenceUser } from "../../adapters/types";
 import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
+import { useAdminPathname } from "../shared/router";
 import { initials } from "./format";
 import { useAdminRuntime } from "./runtime";
 
@@ -133,7 +133,7 @@ function tokenExpiry(token: string | null): number {
 export function PresenceHeartbeat({ token }: { token: string | null }) {
   const { apiPath, run } = useAdminRuntime();
   const { basePath } = useAdmin();
-  const pathname = usePathname();
+  const pathname = useAdminPathname();
   const doc = useSyncExternalStore(docStore.subscribe, docStore.get, () => null);
   const tokenRef = useRef(token);
   if (token && tokenExpiry(token) > tokenExpiry(tokenRef.current)) tokenRef.current = token;

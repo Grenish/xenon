@@ -1,13 +1,12 @@
 "use client";
 import { RiAddLine, RiArrowDownSLine, RiArrowRightLine, RiImageLine } from "@remixicon/react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Button } from "../components/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "../components/dropdown-menu";
 import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
 import type { ClientCollection } from "../shared/client-config";
+import { AdminLink as Link, useAdminRouter } from "../shared/router";
 import { adminRoutes, type DashboardData, type DashboardDoc } from "../shared/services";
 import { StatusBadge, formatDate, timeAgo } from "./format";
 import { DocPeers } from "./presence";
@@ -94,7 +93,7 @@ export function DashboardView({ data }: { data: DashboardData }) {
 
 function NewMenu({ collections }: { collections: ClientCollection[] }) {
   const { basePath } = useAdmin();
-  const router = useRouter();
+  const router = useAdminRouter();
   if (collections.length === 1) {
     const c = collections[0]!;
     return <Button onClick={() => router.push(adminRoutes.create(basePath, c.slug))}><RiAddLine data-icon="inline-start" />New {c.labels.singular.toLowerCase()}</Button>;

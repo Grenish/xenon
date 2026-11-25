@@ -1,12 +1,12 @@
 "use client";
 import { RiErrorWarningLine, RiEyeLine, RiEyeOffLine } from "@remixicon/react";
-import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { Button } from "../components/button";
 import { Field, FieldDescription, FieldLabel } from "../components/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "../components/input-group";
 import { Input } from "../components/input";
 import { Spinner } from "../components/spinner";
+import { useAdminRouter } from "../shared/router";
 import { adminRoutes } from "../shared/services";
 import { ElementTile, Wordmark } from "./brand";
 import { useAdminRuntime } from "./runtime";
@@ -17,7 +17,7 @@ const XENON_VERSION = typeof __XENON_VERSION__ === "string" ? __XENON_VERSION__ 
 /** Sign-in, or first-run "create your admin account". */
 export function AuthScreen({ mode }: { mode: "login" | "setup" }) {
   const { run, basePath } = useAdminRuntime();
-  const router = useRouter();
+  const router = useAdminRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);

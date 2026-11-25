@@ -80,6 +80,17 @@ export interface AdminUserInfo {
   role: XenonRole;
 }
 
+export type AdminTheme = "light" | "dark" | "system";
+
+export interface AdminListRow extends DocSummary {
+  changed?: boolean;
+  values: Record<string, unknown>;
+}
+
+export interface AdminTeamMember extends AdminUserInfo {
+  createdAt: string;
+}
+
 export interface AdminContextValue {
   /** e.g. `/admin` */
   basePath: string;
@@ -90,7 +101,7 @@ export interface AdminContextValue {
   services: AdminServices;
 }
 
-/** Admin URL helpers (keep in sync with the router in src/next/admin). */
+/** Admin URL helpers (keep in sync with the shared admin loader in src/http/admin-loader). */
 /** Dashboard payload (built on the server by `loadDashboard`). */
 export interface DashboardDoc {
   id: string;

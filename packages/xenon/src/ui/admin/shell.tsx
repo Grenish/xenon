@@ -16,8 +16,6 @@ import {
   RiTeamLine,
   RiUserLine,
 } from "@remixicon/react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
 import { type ComponentType, Fragment, type ReactNode, useEffect, useState } from "react";
 import { Avatar, AvatarFallback } from "../components/avatar";
 import { Button } from "../components/button";
@@ -38,6 +36,7 @@ import { Sheet, SheetContent, SheetTitle } from "../components/sheet";
 import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
 import type { ClientCollection } from "../shared/client-config";
+import { AdminLink as Link, useAdminPathname, useAdminRouter } from "../shared/router";
 import { adminRoutes } from "../shared/services";
 import { ElementMark } from "./brand";
 import { CommandPalette } from "./command-palette";
@@ -77,7 +76,7 @@ function NavLink({ href, icon: Icon, children, active, onNavigate }: { href: str
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const { basePath, collections } = useAdmin();
-  const pathname = usePathname();
+  const pathname = useAdminPathname();
   const isActive = (href: string, exact = false) => (exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`));
 
   const groups = new Map<string, ClientCollection[]>();
@@ -145,7 +144,7 @@ function SearchButton({ onOpen }: { onOpen: () => void }) {
 function UserMenu() {
   const { user, basePath } = useAdmin();
   const { theme, setTheme, run } = useAdminRuntime();
-  const router = useRouter();
+  const router = useAdminRouter();
 
   async function signOut() {
     await leavePresence();
@@ -236,7 +235,7 @@ function SidebarContents({ onNavigate, onSearch }: { onNavigate?: () => void; on
 function TeamPresence() {
   const { user, basePath, collections } = useAdmin();
   const { snapshot } = usePresence();
-  const pathname = usePathname();
+  const pathname = useAdminPathname();
   // People on the open document are shown by the editor itself; list everyone else here.
   const [, docCollection, docId] = pathname.slice(`${basePath}/collections`.length).split("/");
   const onThisDoc = (p: PresencePeer) => pathname.startsWith(`${basePath}/collections/`) && !!docId && p.location?.collection === docCollection && p.location?.id === docId;
@@ -282,7 +281,7 @@ function TeamPresence() {
 /** Where you are when a page doesn't say: derived from the route. */
 function useDefaultCrumbs(): Crumb[] {
   const { basePath, collections } = useAdmin();
-  const pathname = usePathname();
+  const pathname = useAdminPathname();
   if (pathname.startsWith(adminRoutes.settings(basePath))) return [{ label: "Settings" }];
   const c = collections.find((col) => pathname.startsWith(adminRoutes.list(basePath, col.slug)));
   if (c) return [{ label: c.admin.group ?? (c.upload ? "Library" : "Content") }, { label: c.labels.plural }];

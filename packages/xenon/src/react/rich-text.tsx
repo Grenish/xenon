@@ -1,5 +1,9 @@
 import { createElement, Fragment, type ReactNode } from "react";
 import type { RichTextDocument, RichTextMark, RichTextNode } from "../core/types";
+import { richTextToPlainText } from "../html/rich-text";
+import { safeUrl } from "../html/safe-url";
+
+export { richTextToPlainText, safeUrl };
 
 /*
  * Renders Xenon rich text (Tiptap / ProseMirror JSON) to React. Works in Server Components,
@@ -13,29 +17,6 @@ export interface RichTextProps {
   /** Override rendering per node type (e.g. `{ image: ({ node }) => <Image … /> }`). */
   components?: RichTextComponents;
   className?: string;
-}
-
-const ALLOWED_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
-const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
-
-export function safeUrl(url: unknown): string | undefined {
-  if (typeof url !== "string") return undefined;
-  const trimmed = url.trim();
-  // Reject empty strings and C0/DEL control characters (browsers strip \t/\n/\r and leading controls when parsing schemes).
-  if (!trimmed || /[\u0000-\u001f\u007f]/.test(trimmed)) return undefined;
-  // Reject protocol-relative URLs (`//evil.com`, `/\evil.com`) and leading backslashes.
-  if (/^([/\\]{2}|\\)/.test(trimmed)) return undefined;
-  if (SCHEME_RE.test(trimmed)) {
-    try {
-      const parsed = new URL(trimmed);
-      if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) return undefined;
-      if ((parsed.protocol === "http:" || parsed.protocol === "https:") && !/^https?:\/\//i.test(trimmed)) return undefined;
-      return trimmed;
-    } catch {
-      return undefined;
-    }
-  }
-  return trimmed;
 }
 
 function applyMark(mark: RichTextMark, child: ReactNode, key: number): ReactNode {
@@ -117,13 +98,4 @@ export function RichText({ value, components, className }: RichTextProps) {
   if (!value || value.type !== "doc") return null;
   const content = renderNodes(value.content, components);
   return className ? <div className={className}>{content}</div> : <>{content}</>;
-}
-
-/** Plain-text version (excerpts, meta descriptions). */
-export function richTextToPlainText(value: RichTextDocument | null | undefined): string {
-  const walk = (nodes: RichTextNode[] | undefined): string =>
-    (nodes ?? [])
-      .map((n) => (n.type === "text" ? (n.text ?? "") : n.type === "hardBreak" ? "\n" : walk(n.content) + (["paragraph", "heading", "listItem", "blockquote", "codeBlock"].includes(n.type) ? "\n" : "")))
-      .join("");
-  return walk(value?.content).replace(/\n{2,}/g, "\n").trim();
 }

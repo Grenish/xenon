@@ -5,6 +5,7 @@ import { TooltipProvider } from "../components/tooltip";
 import { PortalContainerProvider } from "../lib/portal-container";
 import { AdminProvider } from "../shared/admin-context";
 import type { ClientCollection } from "../shared/client-config";
+import { type AdminRouter, AdminRouterProvider } from "../shared/router";
 import type { AdminUserInfo } from "../shared/services";
 import { type AdminAction, AdminRuntimeProvider, useServices } from "./runtime";
 import { acquireColorScheme, type AdminTheme, applyColorScheme, useAdminTheme, useSystemDark } from "./theme-store";
@@ -15,7 +16,10 @@ export interface AdminRootProps {
   theme: AdminTheme;
   basePath: string;
   apiPath: string;
-  action: AdminAction;
+  /** Optional host action transport (e.g. Next.js Server Action). Defaults to HTTP `POST {apiPath}/_admin/action`. */
+  action?: AdminAction;
+  /** Optional host router adapter (defaults to an outer `<AdminRouterProvider>` or the built-in History API router). */
+  router?: AdminRouter;
   collections: ClientCollection[];
   user: AdminUserInfo | null;
   /** Signed presence token (null when presence is off). */
@@ -23,7 +27,7 @@ export interface AdminRootProps {
   children: ReactNode;
 }
 
-function SignedIn({ basePath, apiPath, collections, user, presenceToken, children }: Omit<AdminRootProps, "theme" | "action" | "user"> & { user: AdminUserInfo }) {
+function SignedIn({ basePath, apiPath, collections, user, presenceToken, children }: Omit<AdminRootProps, "theme" | "action" | "router" | "user"> & { user: AdminUserInfo }) {
   const services = useServices();
   const value = useMemo(() => ({ basePath, apiPath, collections, user, services }), [basePath, apiPath, collections, user, services]);
   return (
@@ -35,7 +39,7 @@ function SignedIn({ basePath, apiPath, collections, user, presenceToken, childre
 }
 
 /** Root of the admin: scoped `.xenon-admin` element, theme, portals, toasts and runtime services. */
-export function AdminRoot({ theme, basePath, apiPath, action, collections, user, presenceToken, children }: AdminRootProps) {
+export function AdminRoot({ theme, basePath, apiPath, action, router, collections, user, presenceToken, children }: AdminRootProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
   const current = useAdminTheme(theme);
@@ -51,6 +55,18 @@ export function AdminRoot({ theme, basePath, apiPath, action, collections, user,
     applyColorScheme(document.documentElement, dark);
   }, [dark]);
 
+  const runtime = (
+    <AdminRuntimeProvider basePath={basePath} apiPath={apiPath} action={action} theme={theme}>
+      {user ? (
+        <SignedIn basePath={basePath} apiPath={apiPath} collections={collections} user={user} presenceToken={presenceToken}>
+          {children}
+        </SignedIn>
+      ) : (
+        children
+      )}
+    </AdminRuntimeProvider>
+  );
+
   return (
     <div
       ref={rootRef}
@@ -59,15 +75,7 @@ export function AdminRoot({ theme, basePath, apiPath, action, collections, user,
     >
       <PortalContainerProvider value={portal}>
         <TooltipProvider delay={400}>
-          <AdminRuntimeProvider basePath={basePath} apiPath={apiPath} action={action} theme={theme}>
-            {user ? (
-              <SignedIn basePath={basePath} apiPath={apiPath} collections={collections} user={user} presenceToken={presenceToken}>
-                {children}
-              </SignedIn>
-            ) : (
-              children
-            )}
-          </AdminRuntimeProvider>
+          {router ? <AdminRouterProvider router={router}>{runtime}</AdminRouterProvider> : runtime}
         </TooltipProvider>
         <Toaster theme={dark ? "dark" : "light"} position="bottom-right" />
       </PortalContainerProvider>

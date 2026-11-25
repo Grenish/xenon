@@ -16,7 +16,8 @@
   },
   "sideEffects": [
     "*.css",
-    "./dist/client.js"
+    "./dist/client.js",
+    "./dist/next-client.js"
   ],
   "files": [
     "dist"
@@ -30,9 +31,21 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
+    "./http": {
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.js"
+    },
+    "./html": {
+      "types": "./dist/html.d.ts",
+      "import": "./dist/html.js"
+    },
     "./next": {
       "types": "./dist/next.d.ts",
       "import": "./dist/next.js"
+    },
+    "./next-client": {
+      "types": "./dist/next-client.d.ts",
+      "import": "./dist/next-client.js"
     },
     "./react": {
       "types": "./dist/react.d.ts",
