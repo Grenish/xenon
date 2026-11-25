@@ -2,7 +2,7 @@
  * Core type definitions + the type-level inference engine.
  * Everything here is erased at runtime — no imports with side effects.
  */
-import type { DatabaseAdapter, PresenceStore, StorageAdapter } from "../adapters/types";
+import type { DatabaseAdapter, PresenceStore, StorageAdapter, WhereOperators } from "../adapters/types";
 
 /* -------------------------------------------------------------------------- */
 /*                                   Utils                                    */
@@ -77,12 +77,27 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
   };
 }
 
+/**
+ * Shows a field only when its sibling data matches, e.g. `{ type: { equals: "video" } }`. Keys name
+ * sibling fields (the fields next to it in the same collection, group, array row or block); values use
+ * the `where` operators (`equals`, `not_equals`, `in`, `not_in`, `contains`, `gt`, `gte`, `lt`, `lte`,
+ * `exists`), combinable with `and` / `or`. Plain data, so the admin evaluates it as you type and the
+ * server applies the same rule: a hidden field keeps its value but skips `required`, row minimums and
+ * custom `validate` (its value's type and format are still checked).
+ */
+export type FieldCondition = {
+  and?: FieldCondition[];
+  or?: FieldCondition[];
+} & { [field: string]: WhereOperators | FieldCondition[] | undefined };
+
 export interface FieldAdminOptions {
   description?: string;
   hidden?: boolean;
   readOnly?: boolean;
   position?: "main" | "sidebar";
   placeholder?: string;
+  /** Show this field only when sibling data matches. See `FieldCondition`. */
+  condition?: FieldCondition;
 }
 
 export interface FieldValidateContext {

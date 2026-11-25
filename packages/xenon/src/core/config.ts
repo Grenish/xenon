@@ -1,6 +1,7 @@
 import type { AnyCollection, Field, XenonConfig, XenonConfigInput } from "./types";
 import { SYSTEM_KEYS, UPLOAD_KEYS } from "./types";
-import { selectOptionValues, validateFieldValue } from "./validation";
+import { CONDITION_OPERATORS } from "./condition";
+import { isJsonValue, selectOptionValues, validateFieldValue } from "./validation";
 
 export class XenonConfigError extends Error {
   override name = "XenonConfigError";
@@ -35,6 +36,32 @@ function validateRows(slug: string, path: string, field: { minRows?: number; max
   }
 }
 
+function validateCondition(slug: string, at: string, self: string, condition: unknown, siblings: Record<string, Field>, depth = 0): void {
+  const bad = (message: string) => fail(slug, at, `invalid admin.condition: ${message}`);
+  if (depth > 8) bad("nested too deeply.");
+  if (typeof condition !== "object" || condition === null || Array.isArray(condition)) bad("expected an object like { status: { equals: \"live\" } }.");
+  if (depth === 0 && !isJsonValue(condition)) bad("must be plain JSON (no functions, dates or undefined), so the admin can evaluate it.");
+  for (const [key, value] of Object.entries(condition as Record<string, unknown>)) {
+    if (key === "and" || key === "or") {
+      if (!Array.isArray(value) || value.length === 0) bad(`"${key}" must be a non-empty array of conditions.`);
+      for (const part of value as unknown[]) validateCondition(slug, at, self, part, siblings, depth + 1);
+      continue;
+    }
+    if (key === self) bad(`a field cannot depend on itself ("${key}").`);
+    if (!Object.hasOwn(siblings, key)) {
+      bad(`"${key}" is not a sibling field. Conditions refer to fields next to this one (${Object.keys(siblings).filter((k) => k !== self).join(", ") || "none"}).`);
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) bad(`"${key}" needs operators, e.g. { equals: ... }.`);
+    const ops = value as Record<string, unknown>;
+    if (Object.keys(ops).length === 0) bad(`"${key}" needs at least one operator.`);
+    for (const [op, operand] of Object.entries(ops)) {
+      if (!CONDITION_OPERATORS.has(op)) bad(`unknown operator "${op}" on "${key}" (use ${[...CONDITION_OPERATORS].join(", ")}).`);
+      if ((op === "in" || op === "not_in") && !Array.isArray(operand)) bad(`"${op}" on "${key}" needs an array.`);
+      if (op === "exists" && typeof operand !== "boolean") bad(`"exists" on "${key}" needs true or false.`);
+    }
+  }
+}
+
 /**
  * Validates a map of fields. `path` is the dotted path of the containing field (`""` at the top level);
  * `reserved` are keys the container manages itself (system fields, row `id`, `blockType`).
@@ -61,6 +88,8 @@ function validateFields(
     if (key.includes(".")) {
       fail(slug, at, `field names cannot contain ".".`);
     }
+
+    if (field.admin?.condition !== undefined) validateCondition(slug, at, key, field.admin.condition, fields);
 
     switch (field.type) {
       case "select": {

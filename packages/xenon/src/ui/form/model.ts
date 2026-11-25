@@ -1,3 +1,4 @@
+import { isConditionMet } from "../../core/condition";
 import { newRowId } from "../../core/row-id";
 import type { ClientBlock, ClientCollection, ClientField } from "../shared/client-config";
 import type { AdminDoc } from "../shared/services";
@@ -111,6 +112,11 @@ export function validateFields(fields: ClientField[], data: Record<string, unkno
   const errors: Record<string, string> = {};
   for (const field of fields) {
     if (field.admin.readOnly || field.admin.hidden) continue;
+    // A hidden (condition not met) field keeps its value: only its format is checked, like in a draft.
+    if (!draft && !isConditionMet(field.admin.condition, data)) {
+      Object.assign(errors, validateFields([{ ...field, admin: { ...field.admin, condition: undefined } }], data, true, prefix));
+      continue;
+    }
     const key = fieldPath(prefix, field.name);
     const value = data[field.name];
     if (field.type === "group") {

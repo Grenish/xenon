@@ -1,6 +1,7 @@
 "use client";
 
 import { useId } from "react";
+import { isConditionMet } from "../../core/condition";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "../components/field";
 import type { ClientField } from "../shared/client-config";
 import { BooleanField, NumberField, SelectField, TextareaField, TextField } from "./basic-fields";
@@ -47,7 +48,8 @@ const isContainer = (field: ClientField) => field.type === "group" || field.type
 
 export function FormRenderer({ fields, data, onChange, errors = {}, disabled, path }: FormRendererProps) {
   const prefix = useId();
-  return <FieldGroup>{fields.filter((field) => !field.admin.hidden).map((field) => {
+  // `admin.condition` is evaluated against this object's data, so fields appear and disappear as you type.
+  return <FieldGroup>{fields.filter((field) => !field.admin.hidden && isConditionMet(field.admin.condition, data)).map((field) => {
     const key = fieldPath(path, field.name);
     const id = `xe-field-${prefix}-${field.name}`;
     const error = errors[key];
