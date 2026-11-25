@@ -1,4 +1,5 @@
 import pkg from "../package.json" with { type: "json" };
+import { DOCS_URL, contentTs, globalsCss, layoutTsx, pageTsx, postPageTsx, siteTsx } from "./next-starter-files";
 
 export type DatabaseChoice = "pglite" | "postgres";
 export type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
@@ -200,57 +201,12 @@ export default nextConfig;
       },
       { path: "next.config.ts", content: nextConfig },
       { path: `${base}xenon.config.ts`, content: renderXenonConfig(db) },
-      {
-        path: `${base}app/layout.tsx`,
-        content: `import type { ReactNode } from "react";
-
-export const metadata = {
-  title: ${JSON.stringify(projectName)},
-  description: "Powered by XenonCMS",
-};
-
-export default function RootLayout({ children }: { children: ReactNode }) {
-  return (
-    <html lang="en">
-      <body style={{ fontFamily: "system-ui, sans-serif", margin: 0 }}>{children}</body>
-    </html>
-  );
-}
-`,
-      },
-      {
-        path: `${base}app/page.tsx`,
-        content: `import Link from "next/link";
-import { getXenon } from "xenon-cms/next";
-import config, { type Post } from "@/xenon.config";
-
-export default async function HomePage() {
-  const { docs } = await getXenon(config).find({ collection: "posts", sort: "-createdAt", limit: 20 });
-  const posts = docs as Post[];
-
-  return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: "4rem 1.5rem" }}>
-      <h1>${projectName}</h1>
-      <p>
-        Manage content in <Link href="/admin">/admin</Link>.
-      </p>
-      {posts.length === 0 ? (
-        <p>No published posts yet. Create your first post in the admin panel.</p>
-      ) : (
-        <ul>
-          {posts.map((post) => (
-            <li key={post.id}>
-              <strong>{post.title}</strong>
-              {post.excerpt ? <p>{post.excerpt}</p> : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
-  );
-}
-`,
-      },
+      { path: `${base}app/layout.tsx`, content: layoutTsx(projectName) },
+      { path: `${base}app/globals.css`, content: globalsCss },
+      { path: `${base}app/page.tsx`, content: pageTsx.replaceAll("app/page.tsx", `${base}app/page.tsx`) },
+      { path: `${base}app/posts/[slug]/page.tsx`, content: postPageTsx },
+      { path: `${base}lib/site.tsx`, content: siteTsx(projectName) },
+      { path: `${base}lib/content.ts`, content: contentTs },
       {
         path: `${base}app/api/xenon/[...slug]/route.ts`,
         content: `import config from "@/xenon.config";
@@ -291,7 +247,14 @@ Built with [XenonCMS](https://github.com/Grenish/xenon) and Next.js.
 ${runCmd(pm, "dev")}
 \`\`\`
 
-Open <http://localhost:3000/admin> to create the first admin user.
+Open <http://localhost:3000> and follow the steps on the page, or go straight to
+<http://localhost:3000/admin> to create the first admin user.
+
+- \`${base}app/page.tsx\`: the home page (latest posts, plus setup steps until the first post is published)
+- \`${base}app/posts/[slug]/page.tsx\`: a post
+- \`${base}xenon.config.ts\`: your collections and fields
+
+Documentation: <${DOCS_URL}>
 `,
       },
     ];

@@ -57,7 +57,10 @@ describe("create-xenon-app", () => {
     expect(existsSync(join(base, "root-app/src"))).toBe(false);
     const rootTsconfig = JSON.parse(readFileSync(join(base, "root-app/tsconfig.json"), "utf8"));
     expect(rootTsconfig.compilerOptions.paths["@/*"]).toEqual(["./*"]);
-    expect(readFileSync(join(base, "root-app/app/page.tsx"), "utf8")).toContain('from "@/xenon.config"');
+    expect(readFileSync(join(base, "root-app/lib/content.ts"), "utf8")).toContain('from "@/xenon.config"');
+    // The starter's own paths follow the chosen layout.
+    expect(readFileSync(join(base, "root-app/app/page.tsx"), "utf8")).toContain("<code>app/page.tsx</code>");
+    expect(root.files).toEqual(expect.arrayContaining(["app/globals.css", "app/posts/[slug]/page.tsx", "lib/site.tsx", "lib/content.ts"]));
   });
 
   test("generated projects typecheck in both layouts against the built xenon-cms", async () => {
@@ -111,6 +114,10 @@ describe("create-xenon-app", () => {
     expect(readFileSync(join(target, "src/app/admin/[[...segments]]/page.tsx"), "utf8")).toContain("runAdminAction");
     expect(readFileSync(join(target, "src/app/api/xenon/[...slug]/route.ts"), "utf8")).toContain("createApiHandler");
     expect(readFileSync(join(target, "src/app/page.tsx"), "utf8")).toContain("getXenon(config).find");
+    const home = readFileSync(join(target, "src/app/page.tsx"), "utf8");
+    expect(home).toContain("<code>src/app/page.tsx</code>");
+    expect(home).toContain("await connection()"); // rendered per request, not frozen at build time
+    expect(readFileSync(join(target, "src/lib/site.tsx"), "utf8")).toContain("https://xenon.grenishrai.pro/docs");
   });
 
   test("scaffolds a Next.js + Postgres app using postgres ^4.1.1 without pglite config", async () => {
