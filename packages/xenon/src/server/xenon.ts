@@ -659,7 +659,9 @@ export function createXenon<Cfg extends XenonConfig>(
         const merged = mergeUpdate(collection.fields, pruneToFields(collection.fields, existing.draftData ?? existing.data), o.data as AnyDoc);
         const data = validate(collection, merged, "create");
         Object.assign(data, verified.meta, { url: verified.url, [FILE_KEY]: { key: verified.key } });
-        const frozen = wasPublished(existing) && existing.slug !== null;
+        const before = slugMetaOf(existing.draftData ?? existing.data);
+        const frozen = (wasPublished(existing) && existing.slug !== null) || before.manual;
+        if (before.manual) withSlugMeta(data, { manual: true });
         const nextSlug = () => uniqueSlug(collection, data, existing.id);
         const slug = frozen ? existing.slug : await nextSlug();
         const record = await withSlugRetry(
