@@ -2,7 +2,7 @@ import type { BetterAuthPlugin } from "better-auth";
 import { matchesOperators } from "../adapters/match";
 import type { DatabaseAdapter, DocumentRecord, StorageAdapter, Where, WhereOperators } from "../adapters/types";
 import { SlugConflictError, UpdateConflictError } from "../adapters/types";
-import { createXenonAuth, resolveUser } from "../auth";
+import { createXenonAuth, resolveSecret, resolveUser } from "../auth";
 import { mergeUpdate, pruneToFields, withReadDefaults } from "../core/defaults";
 import { slugify } from "../core/slug";
 
@@ -11,8 +11,16 @@ import { XenonError } from "../core/errors";
 import type { AnyCollection, Field, XenonConfig, XenonUser } from "../core/types";
 import { UPLOAD_KEYS } from "../core/types";
 import { type ValidationMode, validateCollectionData } from "../core/validation";
-import { type PreparedUpload, prepareUpload } from "./uploads";
-import type { CallContext, CreateXenonOptions, UploadFile, XenonAuth, XenonInstance } from "./types";
+import {
+  PRESIGN_DEFAULT_EXPIRES_IN,
+  type PreparedUpload,
+  prepareUpload,
+  signPresignToken,
+  validatePresignRequest,
+  verifyPresignedObject,
+  verifyPresignToken,
+} from "./uploads";
+import type { CallContext, CreateXenonOptions, PresignUploadOutput, UploadFile, XenonAuth, XenonInstance } from "./types";
 
 type AnyDoc = Record<string, unknown>;
 type Op = "read" | "create" | "update" | "delete";
@@ -91,6 +99,17 @@ export function createXenon<Cfg extends XenonConfig>(
 
   function requireStorage(): StorageAdapter {
     if (!config.storage) throw new Error("[xenon] Upload collections need `storage` in defineConfig().");
+    return config.storage;
+  }
+
+  function hasPresignedStorage(storage: StorageAdapter | undefined): storage is StorageAdapter & Required<Pick<StorageAdapter, "createPresignedUpload" | "head" | "readRange">> {
+    return Boolean(storage?.createPresignedUpload && storage?.head && storage?.readRange);
+  }
+
+  function requirePresignedStorage() {
+    if (!hasPresignedStorage(config.storage)) {
+      throw new XenonError("NOT_IMPLEMENTED", "Configured storage adapter does not support presigned uploads.");
+    }
     return config.storage;
   }
 
@@ -492,6 +511,179 @@ export function createXenon<Cfg extends XenonConfig>(
 
     async readFile(key: string) {
       return config.storage?.read ? config.storage.read(key) : null;
+    },
+
+    get supportsPresignedUploads() {
+      return hasPresignedStorage(config.storage);
+    },
+
+    async presignUpload(o): Promise<PresignUploadOutput> {
+      await init();
+      const collection = requireCollection(o.collection);
+      if (!isUpload(collection)) {
+        throw new XenonError("BAD_REQUEST", `Collection "${collection.slug}" does not support uploads.`);
+      }
+      const storage = requirePresignedStorage();
+      await checkAccess(collection, o.id !== undefined ? "update" : "create", o);
+
+      if (o.id !== undefined) {
+        const existing = await getRecord(collection, o.id);
+        const ifUpdatedAt = expectedVersion(o.expectedUpdatedAt);
+        if (ifUpdatedAt && existing.updatedAt.getTime() !== ifUpdatedAt.getTime()) throw staleError();
+      }
+
+      const plan = validatePresignRequest(collection, {
+        filename: o.filename,
+        mimeType: o.mimeType,
+        size: o.size,
+      });
+      const expiresIn = o.expiresIn ?? PRESIGN_DEFAULT_EXPIRES_IN;
+      const presigned = await storage.createPresignedUpload({
+        key: plan.key,
+        contentType: plan.mimeType,
+        size: o.size,
+        expiresIn,
+      });
+      const parsedExp = Date.parse(presigned.expiresAt);
+      const exp = Number.isFinite(parsedExp) ? parsedExp : Date.now() + expiresIn * 1000;
+      const token = await signPresignToken(resolveSecret(config), {
+        collection: collection.slug,
+        key: presigned.key,
+        filename: plan.filename,
+        mimeType: plan.mimeType,
+        size: o.size,
+        userId: o.user?.id ?? null,
+        ...(o.id !== undefined ? { id: o.id } : {}),
+        exp,
+      });
+
+      return {
+        key: presigned.key,
+        token,
+        upload: {
+          url: presigned.url,
+          method: presigned.method,
+          headers: presigned.headers,
+          expiresAt: presigned.expiresAt,
+        },
+        url: storage.getUrl(presigned.key),
+      };
+    },
+
+    async completeUpload(o) {
+      await init();
+      const collection = requireCollection(o.collection);
+      if (!isUpload(collection)) {
+        throw new XenonError("BAD_REQUEST", `Collection "${collection.slug}" does not support uploads.`);
+      }
+      const storage = requirePresignedStorage();
+
+      const payload = await verifyPresignToken(resolveSecret(config), o.token);
+      if (!payload) {
+        throw new XenonError("BAD_REQUEST", "Invalid or expired upload token.");
+      }
+      if (payload.collection !== collection.slug) {
+        throw new XenonError("BAD_REQUEST", "Upload token does not match this collection.");
+      }
+      if (o.key !== undefined && o.key !== payload.key) {
+        throw new XenonError("BAD_REQUEST", "Upload key does not match the signed upload token.");
+      }
+
+      let targetId: string | undefined;
+      if (payload.id !== undefined) {
+        if (o.id !== undefined && o.id !== payload.id) {
+          throw new XenonError("BAD_REQUEST", "Upload token does not match the target document.");
+        }
+        targetId = payload.id;
+      } else if (o.id !== undefined) {
+        throw new XenonError("BAD_REQUEST", "Upload token was not issued for updating a document.");
+      }
+
+      await checkAccess(collection, targetId !== undefined ? "update" : "create", o);
+      if (o.overrideAccess === false && payload.userId !== (o.user?.id ?? null)) {
+        throw new XenonError("FORBIDDEN", "Upload token does not belong to the current user.");
+      }
+
+      // Replay guard BEFORE object cleanup: never delete an already-completed document's live object.
+      const finalUrl = storage.getUrl(payload.key);
+      const completed = await requireDb().find({
+        collection: collection.slug,
+        source: "published",
+        where: { url: { equals: finalUrl } },
+        limit: 1,
+      });
+      if (completed.docs.length > 0) {
+        throw new XenonError("CONFLICT", "This upload has already been completed.");
+      }
+
+      // Critical #2 guardrail: HEAD + Range GET (magic bytes, active-content block, maxFileSize, image-size).
+      // Deletes the object from storage immediately if any check fails.
+      const verified = await verifyPresignedObject(
+        collection,
+        storage,
+        payload.key,
+        payload.filename,
+        payload.mimeType,
+      );
+
+      try {
+        if (targetId === undefined) {
+          const data = validate(collection, o.data, "create");
+          Object.assign(data, verified.meta, { url: verified.url, [FILE_KEY]: { key: verified.key } });
+          const nextSlug = () => uniqueSlug(collection, data);
+          const slug = await nextSlug();
+          const record = await withSlugRetry(
+            slug !== null,
+            nextSlug,
+            (s) => requireDb().create({
+              collection: collection.slug,
+              slug: s,
+              status: "published",
+              data,
+              draftData: null,
+            }),
+            slug,
+          ).catch(conflict);
+          await notify(collection.slug, record.id, "create", false);
+          return toDoc(collection, record, false) as never;
+        }
+
+        const existing = await getRecord(collection, targetId);
+        const ifUpdatedAt = expectedVersion(o.expectedUpdatedAt);
+        if (ifUpdatedAt && existing.updatedAt.getTime() !== ifUpdatedAt.getTime()) throw staleError();
+        if (typeof o.data !== "object" || o.data === null || Array.isArray(o.data)) {
+          throw new XenonError("VALIDATION", "The submitted data is invalid.", [
+            { path: [], message: "Expected an object" },
+          ]);
+        }
+        const merged = mergeUpdate(collection.fields, pruneToFields(collection.fields, existing.draftData ?? existing.data), o.data as AnyDoc);
+        const data = validate(collection, merged, "create");
+        Object.assign(data, verified.meta, { url: verified.url, [FILE_KEY]: { key: verified.key } });
+        const before = slugMetaOf(existing.draftData ?? existing.data);
+        const frozen = (wasPublished(existing) && existing.slug !== null) || before.manual;
+        if (before.manual) withSlugMeta(data, { manual: true });
+        const nextSlug = () => uniqueSlug(collection, data, existing.id);
+        const slug = frozen ? existing.slug : await nextSlug();
+        const record = await withSlugRetry(
+          !frozen && slug !== null,
+          nextSlug,
+          (s) => requireDb().update(
+            collection.slug,
+            existing.id,
+            { slug: s, data, draftData: null, status: "published" },
+            ifUpdatedAt ? { ifUpdatedAt } : undefined,
+          ),
+          slug,
+        ).catch(conflict);
+        if (!record) throw new XenonError("NOT_FOUND", `Document "${targetId}" not found in "${collection.slug}".`);
+        const oldKey = storageKeyOf(existing);
+        if (oldKey && oldKey !== verified.key) await storage.delete(oldKey).catch(() => {});
+        await notify(collection.slug, record.id, "update", false);
+        return toDoc(collection, record, false) as never;
+      } catch (err) {
+        await storage.delete(verified.key).catch(() => {});
+        throw err;
+      }
     },
   };
 

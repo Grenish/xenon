@@ -109,6 +109,8 @@ export function actionErrorStatus(code: string): number {
       return 413;
     case "UNSUPPORTED_MEDIA_TYPE":
       return 415;
+    case "NOT_IMPLEMENTED":
+      return 501;
     case "INTERNAL":
       return 500;
     default:

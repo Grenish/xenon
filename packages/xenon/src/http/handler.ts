@@ -47,6 +47,25 @@ function objectData(input: unknown): RuntimeInput {
   return input as RuntimeInput;
 }
 
+const MAX_HTTP_PRESIGN_EXPIRES_SECONDS = 3600;
+
+async function readJsonObject(request: Request, message = "Endpoint requires application/json."): Promise<Record<string, unknown>> {
+  const contentType = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") {
+    throw new XenonError("UNSUPPORTED_MEDIA_TYPE", message);
+  }
+  let raw: unknown;
+  try {
+    raw = await request.json();
+  } catch {
+    throw new XenonError("BAD_REQUEST", "Invalid JSON body.");
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new XenonError("BAD_REQUEST", "Request body must be a JSON object.");
+  }
+  return raw as Record<string, unknown>;
+}
+
 // Reserve room for document JSON, filenames, headers and multipart boundaries.
 const MULTIPART_OVERHEAD = 1024 * 1024;
 
@@ -358,9 +377,16 @@ export async function handleApiSegments(
     }
 
     const collection = slug ? xenon.getCollection(slug) : undefined;
-    if (!collection || segments.length > 3 || (action && (action !== "unpublish" || request.method !== "POST"))) {
+    const isPresignRoute = segments.length === 2 && (id === "_presign" || id === "_complete");
+    if (
+      !collection ||
+      segments.length > 3 ||
+      (action && (action !== "unpublish" || request.method !== "POST")) ||
+      (isPresignRoute && request.method !== "POST")
+    ) {
       throw new XenonError("NOT_FOUND", "Route not found.");
     }
+    if (isPresignRoute) noStoreOnError = true;
     const isRead = request.method === "GET" || request.method === "HEAD";
     const user = await xenon.getUser(request.headers);
     if (!isRead && user && !/^Bearer\s+.+$/i.test(request.headers.get("authorization") ?? "")) {
@@ -384,6 +410,68 @@ export async function handleApiSegments(
         return await jsonCachedResponse(request, doc, { isPublic, cacheControl: options?.cacheControl });
       }
       case "POST": {
+        if (id === "_presign") {
+          const body = await readJsonObject(request, "Presigned upload requests require application/json.");
+          if (typeof body.filename !== "string" || !body.filename.trim()) {
+            throw new XenonError("BAD_REQUEST", "filename must be a non-empty string.");
+          }
+          if (typeof body.size !== "number" || !Number.isInteger(body.size) || body.size < 0) {
+            throw new XenonError("BAD_REQUEST", "size must be a non-negative integer.");
+          }
+          const mimeRaw = body.mimeType ?? body.contentType ?? "";
+          if (typeof mimeRaw !== "string") {
+            throw new XenonError("BAD_REQUEST", "mimeType must be a string.");
+          }
+          if (body.id !== undefined && (typeof body.id !== "string" || !body.id.trim())) {
+            throw new XenonError("BAD_REQUEST", "id must be a non-empty string.");
+          }
+          let expiresIn: number | undefined;
+          if (body.expiresIn !== undefined) {
+            if (typeof body.expiresIn !== "number" || !Number.isFinite(body.expiresIn) || body.expiresIn < 1) {
+              throw new XenonError("BAD_REQUEST", "expiresIn must be a positive number of seconds.");
+            }
+            expiresIn = Math.min(MAX_HTTP_PRESIGN_EXPIRES_SECONDS, Math.floor(body.expiresIn));
+          }
+          const expectedUpdatedAt =
+            parseIfMatch(request) ??
+            (typeof body.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : undefined);
+          const presigned = await xenon.presignUpload({
+            ...shared,
+            filename: body.filename,
+            mimeType: mimeRaw,
+            size: body.size,
+            id: body.id,
+            expectedUpdatedAt,
+            expiresIn,
+          });
+          return Response.json(presigned, { status: 200, headers: { "cache-control": PRIVATE_NO_STORE } });
+        }
+        if (id === "_complete") {
+          const body = await readJsonObject(request, "Upload completion requires application/json.");
+          if (typeof body.token !== "string" || !body.token.trim()) {
+            throw new XenonError("BAD_REQUEST", "token must be a non-empty string.");
+          }
+          if (body.key !== undefined && typeof body.key !== "string") {
+            throw new XenonError("BAD_REQUEST", "key must be a string.");
+          }
+          if (body.id !== undefined && (typeof body.id !== "string" || !body.id.trim())) {
+            throw new XenonError("BAD_REQUEST", "id must be a non-empty string.");
+          }
+          const data = body.data === undefined ? ({} as RuntimeInput) : objectData(body.data);
+          const expectedUpdatedAt =
+            parseIfMatch(request) ??
+            (typeof body.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : undefined);
+          const doc = await xenon.completeUpload({
+            ...shared,
+            token: body.token,
+            key: body.key,
+            id: body.id,
+            data,
+            expectedUpdatedAt,
+          });
+          const replaced = body.id !== undefined || doc.updatedAt !== doc.createdAt;
+          return Response.json(doc, { status: replaced ? 200 : 201, headers: { "cache-control": PRIVATE_NO_STORE } });
+        }
         if (id && action === "unpublish") return Response.json(await xenon.unpublish({ ...shared, id }));
         if (id) throw new XenonError("NOT_FOUND", "Route not found.");
         return Response.json(await xenon.create({ ...shared, ...liftSlug(await parseBody(request, maxFileSize)), draft: parseDraft(params) }), { status: 201 });

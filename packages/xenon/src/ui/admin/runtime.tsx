@@ -19,6 +19,7 @@ interface RuntimeValue {
   run<T>(input: AdminActionInput, options?: { refresh?: boolean }): Promise<ActionResult<T>>;
   theme: AdminTheme;
   setTheme(theme: AdminTheme): void;
+  presignedUploads: boolean;
 }
 
 const RuntimeContext = createContext<RuntimeValue | null>(null);
@@ -89,10 +90,13 @@ export function AdminRuntimeProvider(props: {
   /** Optional custom transport (e.g. Next.js Server Action). Defaults to HTTP `POST {apiPath}/_admin/action`. */
   action?: AdminAction;
   theme: AdminTheme;
+  /** `true` when the configured storage adapter supports direct presigned uploads. */
+  presignedUploads?: boolean;
   children: ReactNode;
 }) {
   const router = useAdminRouter();
   const theme = useAdminTheme(props.theme);
+  const presignedUploads = props.presignedUploads === true;
   const action = useMemo<AdminAction>(
     () => props.action ?? createHttpAdminAction(props.apiPath),
     [props.action, props.apiPath],
@@ -115,15 +119,31 @@ export function AdminRuntimeProvider(props: {
   const setTheme = useCallback((next: AdminTheme) => themeStore.set(next), []);
 
   const value = useMemo<RuntimeValue>(
-    () => ({ basePath: props.basePath, apiPath: props.apiPath, action, run, theme, setTheme }),
-    [props.basePath, props.apiPath, action, run, theme, setTheme],
+    () => ({ basePath: props.basePath, apiPath: props.apiPath, action, run, theme, setTheme, presignedUploads }),
+    [props.basePath, props.apiPath, action, run, theme, setTheme, presignedUploads],
   );
   return <RuntimeContext.Provider value={value}>{props.children}</RuntimeContext.Provider>;
 }
 
+interface HttpErrorPayload {
+  errors?: { message: string; path?: (string | number)[] }[];
+}
+
+function toHttpError(status: number, json: HttpErrorPayload | null, fallback = "Upload failed."): ActionResult<never> {
+  const errors = json?.errors ?? [];
+  return {
+    ok: false,
+    error: {
+      code: status === 409 && errors.some((e) => e.path?.[0] === "updatedAt") ? "CONFLICT" : String(status),
+      message: errors[0]?.message ?? fallback,
+      issues: errors.map((e) => ({ path: e.path ?? [], message: e.message })),
+    },
+  };
+}
+
 /** Builds the `AdminServices` used by feature components from the runtime. */
 export function useServices(): AdminServices {
-  const { run, apiPath } = useAdminRuntime();
+  const { run, apiPath, presignedUploads } = useAdminRuntime();
   const router = useAdminRouter();
   return useMemo<AdminServices>(
     () => ({
@@ -133,40 +153,119 @@ export function useServices(): AdminServices {
       get: (input) => run<AdminDoc>({ type: "doc.get", ...input }),
       search: (input) => run<SearchResult>({ type: "doc.search", ...input }),
       async upload({ collection, id, file, data, expectedUpdatedAt }) {
-        // Files go through the REST API (multipart) to avoid the Server Action body size limit.
-        const body = new FormData();
-        body.set("file", file);
-        body.set("data", JSON.stringify(data));
-        let res: Response;
-        try {
-          res = await fetch(`${apiPath}/${encodeURIComponent(collection)}${id ? `/${encodeURIComponent(id)}` : ""}`, {
-            method: id ? "PATCH" : "POST",
-            body,
-            headers: id && expectedUpdatedAt ? { "if-match": `"${expectedUpdatedAt}"` } : undefined,
-            credentials: "same-origin",
-          });
-        } catch {
-          return NETWORK_ERROR;
+        const base = `${apiPath.replace(/\/+$/, "")}/${encodeURIComponent(collection)}`;
+        const ifMatch = id && expectedUpdatedAt ? { "if-match": `"${expectedUpdatedAt}"` } : undefined;
+        let savedId: string | undefined;
+
+        if (presignedUploads) {
+          // 1. Mint a short-lived presigned URL + signed completion token.
+          let presignRes: Response;
+          try {
+            presignRes = await fetch(`${base}/_presign`, {
+              method: "POST",
+              headers: { "content-type": "application/json", ...ifMatch },
+              body: JSON.stringify({
+                filename: file.name,
+                mimeType: file.type || "application/octet-stream",
+                size: file.size,
+                ...(id ? { id } : {}),
+              }),
+              credentials: "same-origin",
+              cache: "no-store",
+            });
+          } catch {
+            return NETWORK_ERROR;
+          }
+          const presignJson = (await presignRes.json().catch(() => null)) as
+            | ({
+                key?: string;
+                token?: string;
+                upload?: { url: string; method: "PUT" | "POST"; headers: Record<string, string> };
+              } & HttpErrorPayload)
+            | null;
+          if (!presignRes.ok || !presignJson?.token || !presignJson?.upload?.url) {
+            return toHttpError(presignRes.status, presignJson);
+          }
+
+          // 2. Upload bytes directly from the browser to S3/R2 (credentials omitted for cross-origin CORS).
+          let putRes: Response;
+          try {
+            putRes = await fetch(presignJson.upload.url, {
+              method: presignJson.upload.method,
+              headers: presignJson.upload.headers,
+              body: file,
+              credentials: "omit",
+            });
+          } catch {
+            return {
+              ok: false,
+              error: {
+                code: "UPLOAD_FAILED",
+                message: "Direct upload to storage failed. Check your connection or storage CORS configuration and try again.",
+              },
+            };
+          }
+          if (!putRes.ok) {
+            return {
+              ok: false,
+              error: {
+                code: String(putRes.status),
+                message: `Direct upload to storage failed (${putRes.status}).`,
+              },
+            };
+          }
+
+          // 3. Complete the upload (server runs HEAD + Range GET security/dimension verification before saving).
+          let completeRes: Response;
+          try {
+            completeRes = await fetch(`${base}/_complete`, {
+              method: "POST",
+              headers: { "content-type": "application/json", ...ifMatch },
+              body: JSON.stringify({
+                token: presignJson.token,
+                key: presignJson.key,
+                data,
+                ...(id ? { id } : {}),
+              }),
+              credentials: "same-origin",
+              cache: "no-store",
+            });
+          } catch {
+            return NETWORK_ERROR;
+          }
+          const completeJson = (await completeRes.json().catch(() => null)) as ({ id?: string } & HttpErrorPayload) | null;
+          if (!completeRes.ok || !completeJson?.id) {
+            return toHttpError(completeRes.status, completeJson);
+          }
+          savedId = completeJson.id;
+        } else {
+          // Local storage / non-presigned adapters: multipart REST upload avoids the Server Action body limit.
+          const body = new FormData();
+          body.set("file", file);
+          body.set("data", JSON.stringify(data));
+          let res: Response;
+          try {
+            res = await fetch(`${base}${id ? `/${encodeURIComponent(id)}` : ""}`, {
+              method: id ? "PATCH" : "POST",
+              body,
+              headers: ifMatch,
+              credentials: "same-origin",
+            });
+          } catch {
+            return NETWORK_ERROR;
+          }
+          const json = (await res.json().catch(() => null)) as ({ id?: string } & HttpErrorPayload) | null;
+          if (!res.ok || !json?.id) {
+            return toHttpError(res.status, json);
+          }
+          savedId = json.id;
         }
-        const json = (await res.json().catch(() => null)) as
-          | { id?: string; errors?: { message: string; path?: (string | number)[] }[] }
-          | null;
-        if (!res.ok || !json?.id) {
-          const errors = json?.errors ?? [];
-          return {
-            ok: false,
-            error: {
-              code: res.status === 409 && errors.some((e) => e.path?.[0] === "updatedAt") ? "CONFLICT" : String(res.status),
-              message: errors[0]?.message ?? "Upload failed.",
-              issues: errors.map((e) => ({ path: e.path ?? [], message: e.message })),
-            },
-          };
-        }
-        const doc = await run<AdminDoc>({ type: "doc.get", collection, id: json.id });
+
+        const doc = await run<AdminDoc>({ type: "doc.get", collection, id: savedId });
         if (doc.ok) router.refresh();
         return doc;
       },
     }),
-    [run, apiPath, router],
+    [run, apiPath, presignedUploads, router],
   );
 }

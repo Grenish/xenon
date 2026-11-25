@@ -49,6 +49,8 @@ export interface AdminShellPayload {
   collections: ClientCollection[];
   user: AdminUserInfo | null;
   presenceToken: string | null;
+  /** `true` when the configured storage adapter supports direct presigned uploads. */
+  presignedUploads?: boolean;
 }
 
 export type AdminRouteData =
@@ -229,6 +231,7 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
         collections: [],
         user: null,
         presenceToken: null,
+        presignedUploads: false,
       },
     };
   }
@@ -251,6 +254,7 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
     collections: visibleCollections,
     user: userInfo,
     presenceToken,
+    presignedUploads: xenon.supportsPresignedUploads,
   };
 
   // ------------------------------------------------------------------ dashboard

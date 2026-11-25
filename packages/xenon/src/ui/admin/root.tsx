@@ -24,10 +24,12 @@ export interface AdminRootProps {
   user: AdminUserInfo | null;
   /** Signed presence token (null when presence is off). */
   presenceToken?: string | null;
+  /** `true` when the configured storage adapter supports direct presigned uploads (`_presign` → PUT → `_complete`). */
+  presignedUploads?: boolean;
   children: ReactNode;
 }
 
-function SignedIn({ basePath, apiPath, collections, user, presenceToken, children }: Omit<AdminRootProps, "theme" | "action" | "router" | "user"> & { user: AdminUserInfo }) {
+function SignedIn({ basePath, apiPath, collections, user, presenceToken, children }: Omit<AdminRootProps, "theme" | "action" | "router" | "user" | "presignedUploads"> & { user: AdminUserInfo }) {
   const services = useServices();
   const value = useMemo(() => ({ basePath, apiPath, collections, user, services }), [basePath, apiPath, collections, user, services]);
   return (
@@ -39,7 +41,7 @@ function SignedIn({ basePath, apiPath, collections, user, presenceToken, childre
 }
 
 /** Root of the admin: scoped `.xenon-admin` element, theme, portals, toasts and runtime services. */
-export function AdminRoot({ theme, basePath, apiPath, action, router, collections, user, presenceToken, children }: AdminRootProps) {
+export function AdminRoot({ theme, basePath, apiPath, action, router, collections, user, presenceToken, presignedUploads, children }: AdminRootProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
   const current = useAdminTheme(theme);
@@ -56,7 +58,7 @@ export function AdminRoot({ theme, basePath, apiPath, action, router, collection
   }, [dark]);
 
   const runtime = (
-    <AdminRuntimeProvider basePath={basePath} apiPath={apiPath} action={action} theme={theme}>
+    <AdminRuntimeProvider basePath={basePath} apiPath={apiPath} action={action} theme={theme} presignedUploads={presignedUploads}>
       {user ? (
         <SignedIn basePath={basePath} apiPath={apiPath} collections={collections} user={user} presenceToken={presenceToken}>
           {children}
