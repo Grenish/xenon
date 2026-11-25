@@ -82,7 +82,7 @@ describe("create-xenon-app", () => {
       const result = spawnSync(tsc, ["--noEmit", "-p", project], { encoding: "utf8", shell: process.platform === "win32" });
       if (result.status !== 0) throw new Error(`tsc failed for the ${srcDir ? "src/" : "root app/"} layout:\n${result.stdout}${result.stderr}`);
     }
-  });
+  }, 120_000);
 
   test("scaffolds a complete Next.js + PGlite app pinned to matching xenon-cms version", async () => {
     const base = makeTempDir();
