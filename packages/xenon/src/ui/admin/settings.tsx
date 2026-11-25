@@ -1,6 +1,5 @@
 "use client";
 import { RiCheckLine, RiComputerLine, RiLogoutBoxRLine, RiPaletteLine, RiSmartphoneLine, RiTeamLine, RiUserLine } from "@remixicon/react";
-import Link from "next/link";
 import { type ComponentType, type FormEvent, type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -21,6 +20,7 @@ import { Input } from "../components/input";
 import { Spinner } from "../components/spinner";
 import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
+import { AdminLink as Link } from "../shared/router";
 import { type AccountSession, adminRoutes, type SettingsTab } from "../shared/services";
 import { formatDate, initials, timeAgo } from "./format";
 import { type AdminTheme, useAdminRuntime } from "./runtime";

@@ -8,6 +8,9 @@
     "paths": {
       "xenon-cms/client": [
         "./src/ui/client.ts"
+      ],
+      "xenon-cms/next-client": [
+        "./src/next/admin/router.tsx"
       ]
     }
   },

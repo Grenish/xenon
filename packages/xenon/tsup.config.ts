@@ -25,6 +25,7 @@ const shared: Options = {
   define: { __XENON_VERSION__: JSON.stringify(pkg.version) },
   external: [
     "xenon-cms/client",
+    "xenon-cms/next-client",
     "zod",
     "react",
     "react-dom",
@@ -57,6 +58,8 @@ export default defineConfig([
     entry: {
       index: "src/index.ts",
       server: "src/server/index.ts",
+      http: "src/http/index.ts",
+      html: "src/html/index.ts",
       next: "src/next/index.ts",
       react: "src/react/index.ts",
       postgres: "src/adapters/postgres/index.ts",
@@ -75,6 +78,14 @@ export default defineConfig([
     platform: "browser",
     splitting: false,
     // tsup's `treeshake` runs a rollup pass that drops module-level directives; esbuild keeps the banner.
+    treeshake: false,
+    banner: { js: '"use client";' },
+  },
+  {
+    ...shared,
+    entry: { "next-client": "src/next/admin/router.tsx" },
+    platform: "browser",
+    splitting: false,
     treeshake: false,
     banner: { js: '"use client";' },
   },

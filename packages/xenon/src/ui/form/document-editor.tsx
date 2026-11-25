@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { RiMoreLine, RiDeleteBinLine, RiEditLine, RiEyeOffLine, RiLockLine, RiSave3Line } from "@remixicon/react";
 import { StatusBadge, timeAgo, formatDate } from "../admin/format";
@@ -16,6 +15,7 @@ import { Spinner } from "../components/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/tooltip";
 import { useAdmin } from "../shared/admin-context";
 import type { ClientCollection } from "../shared/client-config";
+import { useAdminRouter } from "../shared/router";
 import { adminRoutes, type ActionResult, type AdminDoc } from "../shared/services";
 import { FileDropzone } from "./file-dropzone";
 import { FormRenderer } from "./form-renderer";
@@ -27,7 +27,7 @@ import { documentTitle, initialData, normalizeFormData, validateFields } from ".
 
 export function DocumentEditor({ collection, doc }: { collection: ClientCollection; doc: AdminDoc | null }) {
   const { basePath, services } = useAdmin();
-  const router = useRouter();
+  const router = useAdminRouter();
   const [current, setCurrent] = useState(doc);
   const [data, setData] = useState<Record<string, unknown>>(() => initialData(collection, doc));
   const [baseline, setBaseline] = useState(() => JSON.stringify(initialData(collection, doc)));

@@ -8,8 +8,6 @@ import {
   RiFileLine,
   RiSearchLine,
 } from "@remixicon/react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { buttonVariants } from "../components/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../components/empty";
@@ -19,15 +17,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
 import type { ClientCollection, ClientField } from "../shared/client-config";
-import { adminRoutes, type DocSummary } from "../shared/services";
+import { AdminLink as Link, useAdminPathname, useAdminRouter } from "../shared/router";
+import { type AdminListRow, adminRoutes, type DocSummary } from "../shared/services";
 import { StatusBadge, formatDate, timeAgo } from "./format";
 import { DocPeers } from "./presence";
 import { collectionIcon } from "./shell";
 
-export interface ListRow extends DocSummary {
-  changed?: boolean;
-  values: Record<string, unknown>;
-}
+export type ListRow = AdminListRow;
 
 export interface CollectionListViewProps {
   collection: ClientCollection;
@@ -74,8 +70,8 @@ function isImage(row: DocSummary) {
 
 export function CollectionListView({ collection, rows, totalDocs, page, totalPages, query }: CollectionListViewProps) {
   const { basePath } = useAdmin();
-  const router = useRouter();
-  const pathname = usePathname();
+  const router = useAdminRouter();
+  const pathname = useAdminPathname();
   const [pending, startTransition] = useTransition();
   const [search, setSearch] = useState(query.q);
   const [active, setActive] = useState(-1);

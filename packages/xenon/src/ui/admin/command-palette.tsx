@@ -12,13 +12,13 @@ import {
   RiPaletteLine,
   RiSettings3Line,
 } from "@remixicon/react";
-import { useRouter } from "next/navigation";
 import { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "../components/dialog";
 import { Kbd } from "../components/kbd";
 import { Spinner } from "../components/spinner";
 import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
+import { useAdminRouter } from "../shared/router";
 import { adminRoutes, type DocSummary } from "../shared/services";
 import { StatusBadge } from "./format";
 import { guardNavigation } from "./dirty-guard";
@@ -48,7 +48,7 @@ function useDebounced<T>(value: T, ms: number): T {
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange(open: boolean): void }) {
   const { basePath, collections, user, services } = useAdmin();
   const { setTheme } = useAdminRuntime();
-  const router = useRouter();
+  const router = useAdminRouter();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [results, setResults] = useState<Item[]>([]);
