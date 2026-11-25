@@ -118,8 +118,9 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     const fields: Record<string, string> = {};
     const messages: string[] = [];
     for (const issue of result.error.issues ?? []) {
-      const key = issue.path[0];
-      if (typeof key === "string" && collection.fields.some((field) => field.name === key)) fields[key] = issue.message;
+      const root = issue.path[0];
+      // Keyed by full path (`links.0.href`) so nested inputs show their own errors.
+      if (typeof root === "string" && collection.fields.some((field) => field.name === root)) fields[issue.path.join(".")] ??= issue.message;
       else messages.push(issue.message);
     }
     setFieldErrors(fields);
@@ -223,12 +224,20 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
 
   const change = (name: string, value: unknown) => {
     setData((previous) => ({ ...previous, [name]: value }));
-    setFieldErrors((previous) => { if (!(name in previous)) return previous; const next = { ...previous }; delete next[name]; return next; });
+    setFieldErrors((previous) => {
+      const stale = Object.keys(previous).filter((key) => key === name || key.startsWith(`${name}.`));
+      if (!stale.length) return previous;
+      const next = { ...previous };
+      for (const key of stale) delete next[key];
+      return next;
+    });
   };
   const conflictAuthor = conflict ? (() => { const p = presence.peers.find((peer) => peer.version === conflict.latest.updatedAt); return p ? displayName(p.user) : null; })() : null;
   const saveState = readOnly ? "Read-only" : pending === "remove" ? "Deleting…" : pending === "unpublish" ? "Unpublishing…" : pending ? "Saving…" : dirty ? "Unsaved changes" : current ? `Saved ${timeAgo(current.updatedAt)}` : "Not saved yet";
   const words = bodyField ? richTextToPlainText(data[bodyField.name] as RichTextDocument | null).trim().split(/\s+/).filter(Boolean).length : 0;
-  const propertyFields = canvasMode ? collection.fields.filter((field) => field !== titleField && field !== bodyField) : collection.fields.filter((field) => field.admin.position === "sidebar");
+  // Title/body layout: the canvas also holds fields placed in "main" (and page builders, which need the width).
+  const canvasFields = canvasMode ? collection.fields.filter((field) => field !== titleField && field !== bodyField && (field.admin.position === "main" || (field.type === "blocks" && field.admin.position !== "sidebar"))) : [];
+  const propertyFields = canvasMode ? collection.fields.filter((field) => field !== titleField && field !== bodyField && !canvasFields.includes(field)) : collection.fields.filter((field) => field.admin.position === "sidebar");
 
   const docLabel = current || dirty ? title : `New ${collection.labels.singular.toLowerCase()}`;
   useShellBar({
@@ -289,6 +298,9 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
             aria-invalid={!!fieldErrors[bodyField.name]} aria-describedby={fieldErrors[bodyField.name] ? `${canvasId}-body-error` : undefined}
             onChange={(value) => change(bodyField.name, value)} />
           {fieldErrors[bodyField.name] ? <p id={`${canvasId}-body-error`} role="alert" className="xe:text-sm xe:text-destructive">{fieldErrors[bodyField.name]}</p> : null}
+        </div> : null}
+        {canvasFields.length ? <div className="xe:mt-8">
+          <FormRenderer fields={canvasFields} data={data} disabled={locked} errors={fieldErrors} onChange={change} />
         </div> : null}
       </article> : !collection.upload ? <section className="xe:mx-auto xe:flex xe:w-full xe:max-w-[46rem] xe:flex-col xe:gap-5">
         <div className="xe:flex xe:flex-col xe:gap-1">

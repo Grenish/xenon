@@ -3,6 +3,7 @@ import { matchesOperators } from "../adapters/match";
 import type { DatabaseAdapter, DocumentRecord, StorageAdapter, Where, WhereOperators } from "../adapters/types";
 import { SlugConflictError, UpdateConflictError } from "../adapters/types";
 import { createXenonAuth, resolveUser } from "../auth";
+import { withReadDefaults } from "../core/defaults";
 import { XenonError } from "../core/errors";
 import type { AnyCollection, Field, XenonConfig, XenonUser } from "../core/types";
 import { UPLOAD_KEYS } from "../core/types";
@@ -49,10 +50,6 @@ function slugSuffix(slug: string, base: string): number | null {
 const isUpload = (c: AnyCollection) => c.upload !== undefined && c.upload !== false;
 const draftsEnabled = (c: AnyCollection) => c.drafts !== false && !isUpload(c);
 const fieldsOf = (c: AnyCollection) => c.fields as Record<string, Field>;
-
-function cloneValue<T>(v: T): T {
-  return typeof v === "object" && v !== null ? structuredClone(v) : v;
-}
 
 /** Keeps only declared fields (drops keys of removed fields and internal metadata). */
 function pickFields(collection: AnyCollection, data: AnyDoc): AnyDoc {
@@ -129,12 +126,7 @@ export function createXenon<Cfg extends XenonConfig>(
 
   function toDoc(collection: AnyCollection, record: DocumentRecord, draft: boolean): AnyDoc {
     const source = draft ? (record.draftData ?? record.data) : record.data;
-    const fields = pickFields(collection, source);
-    for (const [key, field] of Object.entries(fieldsOf(collection))) {
-      if (field.defaultValue !== undefined && (fields[key] === undefined || fields[key] === null)) {
-        fields[key] = cloneValue(field.defaultValue);
-      }
-    }
+    const fields = withReadDefaults(collection.fields, source);
     const doc: AnyDoc = {
       id: record.id,
       slug: record.slug,

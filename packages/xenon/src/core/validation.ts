@@ -1,13 +1,19 @@
 import { z } from "zod";
+import { newRowId } from "./row-id";
 import type {
+  AnyBlock,
   AnyCollection,
   Field,
+  FieldsMap,
   InferCreateInput,
   InferDraftInput,
   InferUpdateInput,
   RichTextDocument,
   SelectOption,
+  StandardSchemaV1,
 } from "./types";
+
+export { newRowId };
 
 export type ValidationMode = "create" | "update" | "draft";
 
@@ -43,8 +49,180 @@ function many(field: { hasMany?: boolean }, item: z.ZodType, unique: boolean): z
     : arr;
 }
 
+/* -------------------------------------------------------------------------- */
+/*                              Scalar primitives                             */
+/* -------------------------------------------------------------------------- */
+
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** `YYYY-MM-DD` naming a real calendar day. */
+export function isCalendarDate(value: string): boolean {
+  const m = DATE_RE.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
+}
+
+const isoDateTime = z.iso.datetime({ offset: true });
+
+/** Normalizes a `datetime()` value to `toISOString()` form, or `null` when it is not an ISO timestamp. */
+export function normalizeDateTime(value: string): string | null {
+  if (!isoDateTime.safeParse(value).success) return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
+function dateSchema(field: Extract<Field, { type: "date" }>): z.ZodType {
+  const time = field.time === true;
+  const norm = (v: string) => (time ? normalizeDateTime(v) : isCalendarDate(v) ? v : null);
+  const min = field.min !== undefined ? norm(field.min) : null;
+  const max = field.max !== undefined ? norm(field.max) : null;
+  return z.string().transform((value, ctx) => {
+    const out = norm(value);
+    if (out === null) {
+      ctx.addIssue({
+        code: "custom",
+        message: time ? "Expected an ISO-8601 date and time" : "Expected a date (YYYY-MM-DD)",
+      });
+      return z.NEVER;
+    }
+    // Same-format ISO strings order lexicographically.
+    if (min !== null && out < min) ctx.addIssue({ code: "custom", message: `Must be on or after ${field.min}` });
+    if (max !== null && out > max) ctx.addIssue({ code: "custom", message: `Must be on or before ${field.max}` });
+    return out;
+  });
+}
+
+function urlSchema(field: Extract<Field, { type: "url" }>): z.ZodType {
+  const protocols = new Set((field.protocols ?? ["http", "https"]).map((p) => p.toLowerCase().replace(/:$/, "")));
+  return z.string().superRefine((value, ctx) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      ctx.addIssue({ code: "custom", message: "Expected a URL" });
+      return;
+    }
+    if (!protocols.has(parsed.protocol.slice(0, -1).toLowerCase())) {
+      ctx.addIssue({ code: "custom", message: `URL must start with ${[...protocols].map((p) => `${p}:`).join(" or ")}` });
+    }
+  });
+}
+
+const MAX_JSON_DEPTH = 64;
+
+/** Plain JSON only: no `undefined`, functions, class instances, non-finite numbers or cycles. */
+export function isJsonValue(value: unknown, depth = 0): boolean {
+  if (depth > MAX_JSON_DEPTH) return false;
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((v) => isJsonValue(v, depth + 1));
+  if (typeof value === "object") {
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return false;
+    return Object.values(value).every((v) => isJsonValue(v, depth + 1));
+  }
+  return false;
+}
+
+function standardPath(path: readonly (PropertyKey | { readonly key: PropertyKey })[] | undefined): (string | number)[] {
+  return (path ?? []).map((p) => {
+    const key = typeof p === "object" ? p.key : p;
+    return typeof key === "number" ? key : String(key);
+  });
+}
+
+function jsonSchema(field: Extract<Field, { type: "json" }>): z.ZodType {
+  const schema: StandardSchemaV1 | undefined = field.schema;
+  return z.unknown().transform((value, ctx) => {
+    if (!isJsonValue(value)) {
+      ctx.addIssue({ code: "custom", message: "Expected a JSON value" });
+      return z.NEVER;
+    }
+    if (!schema) return value;
+    const result = schema["~standard"].validate(value);
+    if (result instanceof Promise) {
+      throw new Error("[xenon] json() schemas must validate synchronously.");
+    }
+    const r = result as { value?: unknown; issues?: readonly { message: string; path?: readonly (PropertyKey | { key: PropertyKey })[] }[] };
+    if (r.issues) {
+      for (const issue of r.issues) ctx.addIssue({ code: "custom", message: issue.message, path: standardPath(issue.path) });
+      return z.NEVER;
+    }
+    return r.value;
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               Nested fields                                */
+/* -------------------------------------------------------------------------- */
+
+/** Composite values replace their stored value wholesale, so nested fields are checked in full on update. */
+const nestedMode = (mode: ValidationMode): ValidationMode => (mode === "update" ? "create" : mode);
+
+/** `group` → `{}`, `array` / `blocks` → `[]`: what a container holds when nothing is stored. */
+export function containerDefault(field: Field): Record<string, never> | never[] | undefined {
+  if (field.type === "group") return {};
+  if (field.type === "array" || field.type === "blocks") return [];
+  return undefined;
+}
+
+const rowIdSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/, { message: "Invalid row id" });
+
+function rowsSchema(
+  field: { required?: boolean; minRows?: number; maxRows?: number },
+  mode: ValidationMode,
+  item: z.ZodType,
+): z.ZodType {
+  const min = mode === "draft" ? 0 : Math.max(field.minRows ?? 0, field.required ? 1 : 0);
+  return z.array(item).superRefine((rows, ctx) => {
+    if (rows.length < min) {
+      ctx.addIssue({
+        code: "custom",
+        message: field.required && min === 1 ? "This field is required" : `Add at least ${min} ${min === 1 ? "item" : "items"}`,
+      });
+    }
+    if (field.maxRows !== undefined && rows.length > field.maxRows) {
+      ctx.addIssue({ code: "custom", message: `Use ${field.maxRows} ${field.maxRows === 1 ? "item" : "items"} or fewer` });
+    }
+    const seen = new Set<string>();
+    rows.forEach((row, i) => {
+      const id = (row as { id?: unknown }).id;
+      if (typeof id !== "string") return;
+      if (seen.has(id)) ctx.addIssue({ code: "custom", path: [i, "id"], message: "Duplicate row id" });
+      seen.add(id);
+    });
+  });
+}
+
+function blocksItemSchema(blocks: readonly AnyBlock[], mode: ValidationMode): z.ZodType {
+  const bySlug = new Map(blocks.map((b) => [b.slug, b] as const));
+  const schemas = new Map<string, z.ZodType>();
+  return z.unknown().transform((value, ctx) => {
+    const blockType = typeof value === "object" && value !== null ? (value as { blockType?: unknown }).blockType : undefined;
+    const block = typeof blockType === "string" ? bySlug.get(blockType) : undefined;
+    if (!block) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["blockType"],
+        message: `Expected one of: ${blocks.map((b) => b.slug).join(", ")}`,
+      });
+      return z.NEVER;
+    }
+    let schema = schemas.get(block.slug);
+    if (!schema) schemas.set(block.slug, (schema = fieldsSchema(block.fields, mode, { row: true, blockType: block.slug })));
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) ctx.addIssue({ ...issue, input: undefined } as never);
+      return z.NEVER;
+    }
+    return parsed.data;
+  });
+}
+
 /** Schema for a single (non-null) field value, ignoring required/default semantics. */
-export function fieldValueSchema(field: Field): z.ZodType {
+export function fieldValueSchema(field: Field, mode: ValidationMode = "create"): z.ZodType {
   switch (field.type) {
     case "text": {
       let s = z.string();
@@ -77,6 +255,20 @@ export function fieldValueSchema(field: Field): z.ZodType {
     case "media":
     case "relation":
       return many(field, z.string().min(1, { message: "Expected a document id" }), false);
+    case "date":
+      return dateSchema(field);
+    case "email":
+      return z.email({ message: "Expected an email address" });
+    case "url":
+      return urlSchema(field);
+    case "json":
+      return jsonSchema(field);
+    case "group":
+      return fieldsSchema(field.fields, nestedMode(mode));
+    case "array":
+      return rowsSchema(field, mode, fieldsSchema(field.fields, nestedMode(mode), { row: true }));
+    case "blocks":
+      return rowsSchema(field, mode, blocksItemSchema(field.blocks, nestedMode(mode)));
     default: {
       const unknownField: never = field;
       throw new Error(`[xenon] Unknown field type: ${JSON.stringify(unknownField)}`);
@@ -91,10 +283,19 @@ export function validateFieldValue(field: Field, value: unknown): string | null 
 }
 
 function fieldSchema(field: Field, mode: ValidationMode): z.ZodType {
-  const base = fieldValueSchema(field);
+  const base = fieldValueSchema(field, mode);
   if (mode === "draft") return base.nullable().optional();
-  if (field.required) return mode === "update" ? base.optional() : base;
+  if (field.required || (field.type === "group" && hasRequiredFields(field.fields))) {
+    return mode === "update" ? base.optional() : base;
+  }
   return base.nullable().optional();
+}
+
+/** Whether any field (recursively through groups) must be supplied on create. */
+function hasRequiredFields(fields: FieldsMap): boolean {
+  return Object.values(fields).some(
+    (f) => (f.type === "group" ? hasRequiredFields(f.fields) : f.required === true && f.defaultValue === undefined),
+  );
 }
 
 function cloneDefault<T>(value: T): T {
@@ -103,45 +304,43 @@ function cloneDefault<T>(value: T): T {
 
 /**
  * Normalizes input before validation:
- * - `null` on a field with a `defaultValue` becomes the default (any mode), so such fields never read as null;
- * - missing keys get their `defaultValue` in `create` / `draft` mode.
+ * - `null` on a field with a `defaultValue` (or on a container) becomes the default, in any mode, so
+ *   such fields never read as null;
+ * - missing keys get their default in `create` / `draft` mode.
  */
 function applyDefaults(fields: Record<string, Field>, mode: ValidationMode, input: unknown): unknown {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
   const out: Record<string, unknown> = { ...(input as Record<string, unknown>) };
   for (const [key, field] of Object.entries(fields)) {
-    if (field.defaultValue === undefined) continue;
+    const fallback = field.defaultValue !== undefined ? field.defaultValue : containerDefault(field);
+    if (fallback === undefined) continue;
     const v = out[key];
-    if (v === null || (v === undefined && mode !== "update")) {
-      out[key] = cloneDefault(field.defaultValue);
-    }
+    if (v === null || (v === undefined && mode !== "update")) out[key] = cloneDefault(fallback);
   }
   return out;
 }
 
-const schemaCache = new WeakMap<AnyCollection, Map<ValidationMode, z.ZodType>>();
+interface ObjectExtras {
+  /** An `array` row / `blocks` item: accepts (and fills in) an `id`. */
+  row?: boolean;
+  /** A `blocks` item of this type: accepts `blockType`. */
+  blockType?: string;
+}
 
 /**
- * Builds (and caches) a Zod schema for a collection's input data.
- * Unknown keys — including managed upload fields — are rejected.
+ * The schema for an object of fields (a collection's data, a group, an array row or a block). Built-in
+ * checks and custom `validate` hooks run in a single pass, so every error is reported at once. (Zod's
+ * object-level refinements are skipped once a nested check aborts.) Unknown keys are rejected.
  */
-export function buildCollectionSchema<C extends AnyCollection, M extends ValidationMode>(
-  collection: C,
-  options: { mode: M },
-): z.ZodType<ModeOutput<C, M>> {
-  const { mode } = options;
-  let byMode = schemaCache.get(collection);
-  const cached = byMode?.get(mode);
-  if (cached) return cached as z.ZodType<ModeOutput<C, M>>;
-
-  const fields = collection.fields as Record<string, Field>;
+function fieldsSchema(fieldsMap: FieldsMap, mode: ValidationMode, extras: ObjectExtras = {}): z.ZodType {
+  const fields = fieldsMap as Record<string, Field>;
   const shape: Record<string, z.ZodType> = {};
   for (const [key, field] of Object.entries(fields)) shape[key] = fieldSchema(field, mode);
+  if (extras.row) shape.id = rowIdSchema.optional();
+  if (extras.blockType !== undefined) shape.blockType = z.literal(extras.blockType);
   const objectSchema = z.strictObject(shape);
 
-  // Built-in checks and custom `validate` hooks run in a single pass, so every error is reported
-  // at once. (Zod's object-level refinements are skipped once a nested check aborts.)
-  const schema = z.preprocess(
+  return z.preprocess(
     (input) => applyDefaults(fields, mode, input),
     z.unknown().transform((input, ctx) => {
       const parsed = objectSchema.safeParse(input);
@@ -152,7 +351,7 @@ export function buildCollectionSchema<C extends AnyCollection, M extends Validat
           // A missing / null value on a required field reads better as "required" than as a type error.
           const key = issue.path.length === 1 ? issue.path[0] : undefined;
           const missing =
-            typeof key === "string" && key in fields && (record[key] === undefined || record[key] === null);
+            typeof key === "string" && Object.hasOwn(fields, key) && (record[key] === undefined || record[key] === null);
           const message = missing ? "This field is required" : issue.message;
           ctx.addIssue({ ...issue, message, input: undefined } as never);
         }
@@ -171,10 +370,30 @@ export function buildCollectionSchema<C extends AnyCollection, M extends Validat
           }
         }
       }
-      return ok && parsed.success ? parsed.data : z.NEVER;
+      if (!ok || !parsed.success) return z.NEVER;
+      const data = parsed.data as Record<string, unknown>;
+      if (extras.row && data.id === undefined) return { id: newRowId(), ...data };
+      return data;
     }),
   );
+}
 
+const schemaCache = new WeakMap<AnyCollection, Map<ValidationMode, z.ZodType>>();
+
+/**
+ * Builds (and caches) a Zod schema for a collection's input data.
+ * Unknown keys — including managed upload fields — are rejected.
+ */
+export function buildCollectionSchema<C extends AnyCollection, M extends ValidationMode>(
+  collection: C,
+  options: { mode: M },
+): z.ZodType<ModeOutput<C, M>> {
+  const { mode } = options;
+  let byMode = schemaCache.get(collection);
+  const cached = byMode?.get(mode);
+  if (cached) return cached as z.ZodType<ModeOutput<C, M>>;
+
+  const schema = fieldsSchema(collection.fields, mode);
   if (!byMode) schemaCache.set(collection, (byMode = new Map()));
   byMode.set(mode, schema);
   return schema as unknown as z.ZodType<ModeOutput<C, M>>;

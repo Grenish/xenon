@@ -3,7 +3,14 @@
  * Strips functions (validate, access) and converts RegExp to { source, flags }.
  * Isomorphic: safe to import from both server and `"use client"` modules.
  */
-import type { AnyCollection, Field, FieldAdminOptions, FieldType, SelectOption } from "../../core/types";
+import type { AnyBlock, AnyCollection, Field, FieldAdminOptions, FieldType, SelectOption } from "../../core/types";
+
+export interface ClientBlock {
+  slug: string;
+  labels: { singular: string; plural: string };
+  description: string | null;
+  fields: ClientField[];
+}
 
 export interface ClientField {
   name: string;
@@ -11,7 +18,7 @@ export interface ClientField {
   label: string;
   required: boolean;
   defaultValue?: unknown;
-  admin: FieldAdminOptions;
+  admin: FieldAdminOptions & { display?: "switch" | "checkbox" };
   // text / textarea
   minLength?: number;
   maxLength?: number;
@@ -26,6 +33,20 @@ export interface ClientField {
   hasMany?: boolean;
   // media / relation
   relationTo?: string;
+  // date: `time` → date-time; bounds as ISO strings
+  time?: boolean;
+  minDate?: string;
+  maxDate?: string;
+  // url
+  protocols?: string[];
+  // group / array: nested fields; blocks: block types
+  fields?: ClientField[];
+  blocks?: ClientBlock[];
+  // array / blocks
+  minRows?: number;
+  maxRows?: number;
+  /** array row noun. */
+  labels?: { singular: string; plural: string };
 }
 
 export interface ClientCollection {
@@ -75,6 +96,20 @@ function normalizeOptions(options: readonly SelectOption[]) {
   return options.map((o) => (typeof o === "string" ? { label: humanize(o), value: o } : { label: o.label, value: o.value }));
 }
 
+function toClientFields(fields: AnyCollection["fields"]): ClientField[] {
+  return Object.entries(fields).map(([name, f]) => toClientField(name, f as Field));
+}
+
+function toClientBlock(block: AnyBlock): ClientBlock {
+  const name = humanize(block.slug);
+  return {
+    slug: block.slug,
+    labels: { singular: block.labels?.singular ?? name, plural: block.labels?.plural ?? pluralize(name) },
+    description: block.admin?.description ?? null,
+    fields: toClientFields(block.fields),
+  };
+}
+
 export function toClientField(name: string, field: Field): ClientField {
   const out: ClientField = {
     name,
@@ -107,6 +142,30 @@ export function toClientField(name: string, field: Field): ClientField {
       out.relationTo = field.relationTo;
       out.hasMany = field.hasMany === true;
       break;
+    case "date":
+      if (field.time) out.time = true;
+      if (field.min !== undefined) out.minDate = field.min;
+      if (field.max !== undefined) out.maxDate = field.max;
+      break;
+    case "url":
+      out.protocols = [...(field.protocols ?? ["http", "https"])];
+      break;
+    case "group":
+      out.fields = toClientFields(field.fields);
+      break;
+    case "array": {
+      out.fields = toClientFields(field.fields);
+      const noun = singularize(out.label);
+      out.labels = { singular: field.labels?.singular ?? (noun === out.label ? "Item" : noun), plural: field.labels?.plural ?? out.label };
+      if (field.minRows !== undefined) out.minRows = field.minRows;
+      if (field.maxRows !== undefined) out.maxRows = field.maxRows;
+      break;
+    }
+    case "blocks":
+      out.blocks = field.blocks.map(toClientBlock);
+      if (field.minRows !== undefined) out.minRows = field.minRows;
+      if (field.maxRows !== undefined) out.maxRows = field.maxRows;
+      break;
   }
   return out;
 }
@@ -114,7 +173,7 @@ export function toClientField(name: string, field: Field): ClientField {
 export function toClientCollection(collection: AnyCollection): ClientCollection {
   const name = humanize(collection.slug);
   const singular = collection.labels?.singular ?? singularize(name);
-  const fields = Object.entries(collection.fields).map(([name, f]) => toClientField(name, f as Field));
+  const fields = toClientFields(collection.fields);
   const upload = collection.upload;
   return {
     slug: collection.slug,
