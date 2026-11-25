@@ -4,6 +4,9 @@ import type { DatabaseAdapter, DocumentRecord, StorageAdapter, Where, WhereOpera
 import { SlugConflictError, UpdateConflictError } from "../adapters/types";
 import { createXenonAuth, resolveUser } from "../auth";
 import { mergeUpdate, pruneToFields, withReadDefaults } from "../core/defaults";
+import { slugify } from "../core/slug";
+
+export { slugify };
 import { XenonError } from "../core/errors";
 import type { AnyCollection, Field, XenonConfig, XenonUser } from "../core/types";
 import { UPLOAD_KEYS } from "../core/types";
@@ -17,26 +20,31 @@ type Op = "read" | "create" | "update" | "delete";
 /** Internal (never returned) storage metadata kept inside `data` of upload documents. */
 const FILE_KEY = "_file";
 
+/**
+ * Internal slug state kept inside the written data (never returned): `manual` — the slug was set by
+ * hand and no longer follows `slugFrom`; `pending` (working copy of a published document only) — a
+ * slug change saved as a draft, applied on the next publish (`null` = back to automatic).
+ */
+const SLUG_KEY = "_slug";
+interface SlugMeta { manual?: boolean; pending?: string | null }
+
+function slugMetaOf(source: AnyDoc | null | undefined): SlugMeta {
+  const meta = source?.[SLUG_KEY];
+  return typeof meta === "object" && meta !== null ? (meta as SlugMeta) : {};
+}
+
+function withSlugMeta(data: AnyDoc, meta: SlugMeta): AnyDoc {
+  const clean: SlugMeta = {};
+  if (meta.manual) clean.manual = true;
+  if (meta.pending !== undefined) clean.pending = meta.pending;
+  if (Object.keys(clean).length) data[SLUG_KEY] = clean;
+  else delete data[SLUG_KEY];
+  return data;
+}
+
 export interface CreateXenonInternalOptions extends CreateXenonOptions {
   /** Extra BetterAuth plugins (e.g. `nextCookies()` from the Next.js integration). */
   authPlugins?: BetterAuthPlugin[];
-}
-
-/**
- * URL-safe slug. Latin diacritics are folded to ASCII (`Café` → `cafe`); letters and digits of other
- * scripts are kept (`日本語のタイトル` → `日本語のタイトル`) rather than dropped, so non-Latin titles
- * still get a slug. Capped at 96 code points.
- */
-export function slugify(input: string): string {
-  const slug = input
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    // Recompose what the strip left decomposed (e.g. Japanese voiced kana) before matching.
-    .normalize("NFC")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N}]+/gu, "-")
-    .replace(/^-+|-+$/g, "");
-  return Array.from(slug).slice(0, 96).join("").replace(/-+$/g, "");
 }
 
 /** `base`, `base-2`, `base-3`, …: the suffix a slug takes in its collection, or `null` if unrelated. */
@@ -120,9 +128,10 @@ export function createXenon<Cfg extends XenonConfig>(
   function toDoc(collection: AnyCollection, record: DocumentRecord, draft: boolean): AnyDoc {
     const source = draft ? (record.draftData ?? record.data) : record.data;
     const fields = withReadDefaults(collection.fields, source);
+    const pending = draft && record.draftData ? slugMetaOf(record.draftData).pending : undefined;
     const doc: AnyDoc = {
       id: record.id,
-      slug: record.slug,
+      slug: typeof pending === "string" ? pending : record.slug,
       status: record.status,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
@@ -161,6 +170,25 @@ export function createXenon<Cfg extends XenonConfig>(
     let n = 1;
     while (taken.has(n)) n++;
     return n === 1 ? base : `${base}-${n}`;
+  }
+
+  /** A hand-set slug: normalized, and refused when empty or used by another document. */
+  async function manualSlug(collection: AnyCollection, input: unknown, selfId?: string): Promise<string> {
+    if (typeof input !== "string") {
+      throw new XenonError("VALIDATION", "The submitted data is invalid.", [{ path: ["slug"], message: "Expected a string" }]);
+    }
+    const slug = slugify(input);
+    if (!slug) {
+      throw new XenonError("VALIDATION", "The submitted data is invalid.", [{ path: ["slug"], message: "Use at least one letter or number" }]);
+    }
+    const where: Where = { slug: { equals: slug } };
+    if (selfId) where.id = { not_equals: selfId };
+    const { docs } = await requireDb().find({ collection: collection.slug, source: "draft", where, limit: 1 });
+    if (docs.length) {
+      const message = `The slug "${slug}" is already used by another document.`;
+      throw new XenonError("CONFLICT", message, [{ path: ["slug"], message }]);
+    }
+    return slug;
   }
 
   /**
@@ -309,8 +337,10 @@ export function createXenon<Cfg extends XenonConfig>(
 
       try {
         const nextSlug = () => uniqueSlug(collection, data);
-        const slug = await nextSlug();
-        const record = await withSlugRetry(slug !== null, nextSlug, (slug) => requireDb().create({
+        const manual = o.slug !== undefined && o.slug !== null;
+        const slug = manual ? await manualSlug(collection, o.slug, undefined) : await nextSlug();
+        withSlugMeta(data, { manual });
+        const record = await withSlugRetry(!manual && slug !== null, nextSlug, (slug) => requireDb().create({
           collection: collection.slug,
           slug,
           status: asDraft ? "draft" : "published",
@@ -356,11 +386,37 @@ export function createXenon<Cfg extends XenonConfig>(
         }
       }
 
-      const frozen = wasPublished(existing) && existing.slug !== null;
+      const published = wasPublished(existing);
+      const frozen = published && existing.slug !== null;
       const nextSlug = () => uniqueSlug(collection, data, existing.id);
-      const slug = frozen ? existing.slug : await nextSlug();
+      const before = slugMetaOf(existing.draftData ?? existing.data);
+      // A slug change saved as a draft of a published document waits for the next publish.
+      let requested = o.slug;
+      if (!asDraft && requested === undefined && before.pending !== undefined) requested = before.pending;
+      let slug: string | null;
+      let generated = false;
+      if (asDraft && published && requested !== undefined) {
+        const pending = requested === null ? null : await manualSlug(collection, requested, existing.id);
+        slug = existing.slug;
+        withSlugMeta(data, { manual: before.manual, pending });
+      } else if (requested !== undefined && requested !== null) {
+        slug = await manualSlug(collection, requested, existing.id);
+        withSlugMeta(data, { manual: true });
+      } else if (requested === null) {
+        // Back to automatic: follows `slugFrom` again (even on a published document — an explicit choice).
+        slug = await nextSlug();
+        generated = slug !== null;
+        withSlugMeta(data, {});
+      } else if (before.manual) {
+        slug = existing.slug;
+        withSlugMeta(data, { manual: true, pending: asDraft ? before.pending : undefined });
+      } else {
+        slug = frozen ? existing.slug : await nextSlug();
+        generated = !frozen && slug !== null;
+        withSlugMeta(data, { pending: asDraft ? before.pending : undefined });
+      }
       try {
-        const record = await withSlugRetry(!frozen && slug !== null, nextSlug, (slug) => requireDb().update(
+        const record = await withSlugRetry(generated, nextSlug, (slug) => requireDb().update(
           collection.slug,
           existing.id,
           asDraft

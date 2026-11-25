@@ -21,7 +21,7 @@ export type AdminActionInput =
   | { type: "auth.logout" }
   | { type: "auth.setup"; name: string; email: string; password: string }
   | { type: "doc.get"; collection: string; id: string }
-  | { type: "doc.save"; collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string }
+  | { type: "doc.save"; collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string; slug?: string | null }
   | { type: "doc.unpublish"; collection: string; id: string }
   | { type: "doc.remove"; collection: string; id: string }
   | ({ type: "doc.search" } & SearchInput)
@@ -125,11 +125,19 @@ export function summaryTitle(collection: AnyCollection, data: Record<string, unk
 }
 
 /** Converts a working-copy document from the Local API into the admin shape. */
+/** Only a string (set by hand) or `null` (automatic) reaches the Local API; anything else is ignored. */
+function slugInput(slug: unknown): { slug?: string | null } {
+  return typeof slug === "string" || slug === null ? { slug } : {};
+}
+
 export function toAdminDoc(doc: Record<string, unknown>, record: DocumentRecord | null): AdminDoc {
   const { id, slug, status, createdAt, updatedAt, ...data } = doc;
+  const meta = (record?.draftData ?? record?.data)?._slug as { manual?: boolean } | undefined;
   return {
     id: id as string,
     slug: (slug as string | null) ?? null,
+    liveSlug: record?.slug ?? null,
+    slugManual: meta?.manual === true,
     status: status as AdminDoc["status"],
     createdAt: createdAt as string,
     updatedAt: updatedAt as string,
@@ -392,8 +400,9 @@ export async function dispatchAdminActionWithHeaders(
           ? await xenon.update({
               ...ctx, collection: input.collection, id: input.id, data: input.data as never, draft: input.draft,
               expectedUpdatedAt: typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : undefined,
+              ...slugInput(input.slug),
             })
-          : await xenon.create({ ...ctx, collection: input.collection, data: input.data as never, draft: input.draft });
+          : await xenon.create({ ...ctx, collection: input.collection, data: input.data as never, draft: input.draft, ...slugInput(input.slug) });
         const id = (doc as { id: string }).id;
         return { result: ok(await loadAdminDoc(xenon, config, input.collection, id, user)), headers: responseHeaders };
       }
