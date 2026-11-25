@@ -8,7 +8,8 @@ export type XenonErrorCode =
   | "CONFLICT"
   | "VALIDATION"
   | "PAYLOAD_TOO_LARGE"
-  | "UNSUPPORTED_MEDIA_TYPE";
+  | "UNSUPPORTED_MEDIA_TYPE"
+  | "NOT_IMPLEMENTED";
 
 const STATUS: Record<XenonErrorCode, number> = {
   BAD_REQUEST: 400,
@@ -19,6 +20,7 @@ const STATUS: Record<XenonErrorCode, number> = {
   VALIDATION: 400,
   PAYLOAD_TOO_LARGE: 413,
   UNSUPPORTED_MEDIA_TYPE: 415,
+  NOT_IMPLEMENTED: 501,
 };
 
 /** Operational error raised by the Local API; the REST layer maps it to an HTTP response. */

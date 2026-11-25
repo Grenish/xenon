@@ -88,6 +88,7 @@ async function AdminPageContent({ config, action, params, searchParams }: AdminP
         collections={payload.shell.collections}
         user={payload.shell.user}
         presenceToken={payload.shell.presenceToken}
+        presignedUploads={payload.shell.presignedUploads}
       >
         {children}
       </AdminRoot>
