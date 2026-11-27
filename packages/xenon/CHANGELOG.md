@@ -1,5 +1,37 @@
 # xenon-cms
 
+## 0.4.0
+
+### Minor Changes
+
+- 89a6472: Admin editorial tools (#18): trash, duplicate, bulk actions, list filters, saved views and a column chooser.
+  
+  - **Trash.** `defineCollection({ trash: true })` turns `delete` into a soft delete. The document leaves the site, stops appearing in reads (relations to it populate as `null`), and keeps its slug so it can be restored without collisions. New Local API methods: `restore` (returns it from the trash; `afterChange` runs with `operation: "restore"`) and `purge` (deletes for good, with its stored file and versions). `find({ trash: true })` lists the trash, and `findById({ trash: true })` reads a trashed document. Delete hooks get `permanent: boolean`. They run when a document leaves the site, and don't run again when a trashed one is purged. Trashing clears pending schedules. REST: `GET {c}?trash=true`, `POST {c}/{id}/restore`, `DELETE {c}/{id}?permanent=true`. The Postgres and PGlite adapters add a `deleted_at` column in place, and `FindArgs.trash` (`exclude` by default, or `include` / `only`) lets adapters scope reads.
+  - **Duplicate.** `duplicate({ collection, id, data? })` copies a document's working copy into a new draft through `create`. Values of `unique` fields are left out and the slug is generated afresh. `data` overrides values on the copy. REST: `POST {c}/{id}/duplicate`. In the admin, Duplicate is in the editor's menu and names the copy "… (copy)".
+  - **Bulk actions.** In the admin list, select rows to publish, unpublish, move to the trash or delete. In the Trash view, select rows to restore or delete permanently. Each document runs through the full write path, and failures are reported one by one.
+  - **List filters and views.** A filter bar combines conditions per field type (contains, is, is not, after/before, greater/less, is set/empty). Filters are kept in the URL (`?filter=`), so a filtered list can be shared as a link. Saved views store filters, sorting and columns per browser. A column chooser picks which fields the table shows.
+- 8027034: Add framework-agnostic Live Preview (#14) and PostgreSQL `tsvector` full-text search (#17).
+  
+  ### Live Preview (#14)
+  - Added `admin.previewUrl(doc)` to `defineCollection` and `defineGlobal` with full document/global type inference and config validation.
+  - Added signed preview HTTP endpoints (`POST /{api}/_preview`, `GET /{api}/_preview?token=...`, `GET`/`POST /{api}/_preview/exit`) with HMAC-SHA256 tokens, HttpOnly `xenon-preview` session cookies, access-control enforcement, and open-redirect protection against trusted origins.
+  - Added framework-agnostic request verification (`verifyPreviewRequest`, `isPreviewRequest`, `readPreviewCookie`) on `xenon-cms/server` and `xenon-cms/http`, plus Next.js App Router `draftMode()` integration via `createApiHandler`, `createPreviewHandler`, and `isDraftPreview` on `xenon-cms/next`.
+  - Added client live-update protocol (`subscribeLivePreview`, `mergeLivePreviewData`) on `xenon-cms` and `xenon-cms/react`, and the `"use client"` `useLivePreview` hook on `xenon-cms/live-preview`.
+  - Added a split-pane Live Preview panel with Desktop/Tablet/Mobile viewport presets and debounced unsaved-state `postMessage` syncing to `DocumentEditor` and `GlobalEditor`.
+  
+  ### Full-text search (#17)
+  - Added `search?: string` to `xenon.find()`, `DatabaseAdapter.find()`, and `GET /{api}/{collection}?search=...`, with relevance ranking (`ts_rank`) when no explicit `sort` is specified.
+  - Added dual `search_vector` (live published data) and `draft_search_vector` (pending draft data) `tsvector` columns with GIN indexes on `xenon_documents` so published searches never leak unpublished draft text while draft/admin searches match working copies.
+  - Implemented matching full-text search (prefix tokens, quoted phrases, `OR`, `-negation`, relevance ranking) in `memoryAdapter` and `DatabaseAdapter` conformance tests.
+  - Upgraded admin collection search (`?q=...`) and `doc.search` (`⌘K` / relation pickers) to use full-text search across text, textarea, select, rich-text bodies, nested containers, slugs, and upload filenames.
+- 471f4c4: Version history with draft autosave (#15) and scheduled publishing (#16):
+  
+  - **Versions.** `defineCollection({ versions: true | { max } })` keeps a copy of a document on every publish, manual draft save and restore (the newest 50 by default). Versions record who saved them. Upload collections can't keep versions. New Local API methods `findVersions`, `findVersionById` and `restoreVersion` (restores as a draft by default, through `update`, so hooks, access checks and `onChange` run). New REST routes: `GET {api}/{collection}/{id}/versions`, `GET …/versions/{versionId}` and `POST …/versions/{versionId}/restore` (`?draft=false` publishes; `If-Match` supported). Deleting a document deletes its versions.
+  - **Autosave.** `admin.autosave: true | { interval }` saves the editor's draft in the background after a pause in typing (default 2000 ms). Autosaves pass `autosave: true` to `update`, which records no version, and keep the existing concurrency check (`expectedUpdatedAt`).
+  - **Admin.** The document editor gets a History sheet: a list of versions, a field-by-field comparison with the editor, and Restore. It also gets a Schedule dialog and "Publishes" / "Unpublishes" rows in the inspector.
+  - **Scheduled publishing.** `schedule({ collection, id, publishAt?, unpublishAt? })` and `getSchedule` on draft-enabled collections. `runScheduled()` publishes due drafts and unpublishes expired documents through the regular write path (hooks, versions, `onChange` revalidation). `GET|POST {api}/_cron/publish` runs it for a cron job. It authenticates with `Authorization: Bearer <secret>` (`cron.secret` in the config, or `XENON_CRON_SECRET`, or `CRON_SECRET` for Vercel Cron), or with an admin session or admin API key. Published reads hide a document from its `unpublishAt` on, even if cron runs late. Schedules have their own API and don't add fields to documents, so no field names are newly reserved.
+  - **Adapters.** `DocumentRecord` gains optional `publishAt` / `unpublishAt`. `FindArgs` gains `now`. `DatabaseAdapter` gains optional `createVersion`, `findVersions`, `findVersionById`, `deleteVersions` and `findDue`. The Postgres and PGlite adapters add the `publish_at` / `unpublish_at` columns (`ALTER TABLE … ADD COLUMN IF NOT EXISTS`) and a `xenon_versions` table on `init()`. Existing databases upgrade in place.
+
 ## 0.3.0
 
 ### Minor Changes
