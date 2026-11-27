@@ -5,6 +5,7 @@ import type { PaginatedResult, StoredFile, Where } from "../adapters/types";
 import type {
   AnyCollection,
   CollectionBySlug,
+  HookContext,
   CollectionSlug,
   InferCollectionType,
   InferCreateInput,
@@ -40,6 +41,8 @@ export interface CallContext {
   user?: XenonUser | null;
   /** Skip access control. Default `true` for the Local API, `false` in REST. */
   overrideAccess?: boolean;
+  /** Mutable bag shared by every hook of this call (and nested calls made through the hooks' `xenon`). */
+  context?: HookContext;
 }
 
 type Slug<Cfg> = CollectionSlug<Cfg> & string;

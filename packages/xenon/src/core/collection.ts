@@ -1,6 +1,9 @@
 import type {
   CollectionAccess,
   CollectionConfig,
+  CollectionHookData,
+  CollectionHookDoc,
+  CollectionHooks,
   FieldsMap,
   SystemKey,
   TextFieldKeys,
@@ -25,6 +28,8 @@ export interface DefineCollectionInput<
     description?: string;
   };
   access?: CollectionAccess;
+  /** Lifecycle hooks, typed from `fields`. Server-only. */
+  hooks?: NoInfer<CollectionHooks<CollectionHookData<Fs, Up>, CollectionHookDoc<Fs, Up>>>;
 }
 
 /**
