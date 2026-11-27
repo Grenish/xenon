@@ -37,6 +37,7 @@ const posts = defineCollection({
   slug: "posts",
   slugFrom: "title",
   versions: true,
+  trash: true,
   admin: { useAsTitle: "title", autosave: true },
   fields: {
     title: text({ required: true, maxLength: 200 }),

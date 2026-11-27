@@ -7,7 +7,8 @@
  *   field `afterChange` → collection `afterChange` → field `afterRead` → collection `afterRead` → result.
  *
  * Reads run field `afterRead` then collection `afterRead` on every returned document, populated
- * documents included (before `select` projection). Deletes run `beforeDelete` → delete → `afterDelete`.
+ * documents included (before `select` projection). Deletes run `beforeDelete` → delete → `afterDelete`
+ * (with `permanent: false` when the document goes to the trash; purging a trashed document runs none).
  */
 import type { XenonInstance } from "../server/types";
 import type { AnyCollection, XenonUser } from "./types";
@@ -67,7 +68,8 @@ export interface BeforeChangeHookArgs<D, Doc> extends HookBaseArgs {
 }
 
 export interface AfterChangeHookArgs<Doc> extends HookBaseArgs {
-  operation: HookOperation | "unpublish";
+  /** `restore`: the document came back from the trash. */
+  operation: HookOperation | "unpublish" | "restore";
   draft: boolean;
   /** The document as written (draft view for draft saves and unpublish). */
   doc: Doc;
@@ -85,6 +87,8 @@ export interface DeleteHookArgs<Doc> extends HookBaseArgs {
   id: string;
   /** The document being deleted (working-copy view). */
   doc: Doc;
+  /** `false` when it goes to the trash (collections with `trash`), `true` when it is gone for good. */
+  permanent: boolean;
 }
 
 /** Return replacement data, or nothing to keep the (possibly mutated) `data`. */
@@ -149,7 +153,7 @@ export interface FieldChangeHookArgs<V> extends FieldHookArgs<V> {
 }
 
 export interface FieldAfterChangeHookArgs<V> extends FieldHookArgs<V> {
-  operation: HookOperation | "unpublish";
+  operation: HookOperation | "unpublish" | "restore";
 }
 
 /** Return the new value, or nothing (`undefined`) to keep it. Return `null` to clear it. */

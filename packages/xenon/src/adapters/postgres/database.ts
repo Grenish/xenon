@@ -204,6 +204,7 @@ function toRecord(row: Row): DocumentRecord {
   // Schedule columns are returned only when set (records without a schedule keep their old shape).
   if (row.publishAt) record.publishAt = new Date(row.publishAt);
   if (row.unpublishAt) record.unpublishAt = new Date(row.unpublishAt);
+  if (row.deletedAt) record.deletedAt = new Date(row.deletedAt);
   return record;
 }
 
@@ -328,6 +329,9 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
         collectionFilter,
         compileWhere(args.where, args.source, indexedFields),
       ];
+      const trash = args.trash ?? "exclude";
+      if (trash === "exclude") filters.push(sql`${t.deletedAt} is null`);
+      else if (trash === "only") filters.push(sql`${t.deletedAt} is not null`);
       if (args.source === "published") {
         filters.push(sql`${t.status} = 'published'`);
         // Scheduled unpublish takes effect at query time, even if the cron run is late.
@@ -389,6 +393,7 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
             draftData: input.draftData,
             publishAt: input.publishAt ?? null,
             unpublishAt: input.unpublishAt ?? null,
+            deletedAt: input.deletedAt ?? null,
             createdAt: now,
             updatedAt: now,
             searchVector: sql`to_tsvector('simple', ${liveText})` as unknown as string,
@@ -408,6 +413,7 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
         if (input.draftData !== undefined) set.draftData = input.draftData;
         if (input.publishAt !== undefined) set.publishAt = input.publishAt;
         if (input.unpublishAt !== undefined) set.unpublishAt = input.unpublishAt;
+        if (input.deletedAt !== undefined) set.deletedAt = input.deletedAt;
         if (input.searchText !== undefined) {
           set.searchVector = sql`to_tsvector('simple', ${input.searchText ?? ""})` as unknown as string;
         } else if (input.data !== undefined) {
@@ -520,14 +526,15 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
         ${t.publishAt},
         case when ${t.status} = 'published' then ${t.unpublishAt} end
       )`;
-      let query = db().select().from(t).where(or(publishDue, unpublishDue)).orderBy(asc(dueAt), sql`${t.id} collate "C" asc`).$dynamic();
+      let query = db().select().from(t).where(and(or(publishDue, unpublishDue), sql`${t.deletedAt} is null`)).orderBy(asc(dueAt), sql`${t.id} collate "C" asc`).$dynamic();
       if (limit > 0) query = query.limit(limit);
       return ((await query) as Row[]).map(toRecord);
     },
 
     async summarize(args: SummarizeArgs): Promise<CollectionSummary> {
       // Aggregates in SQL; only a handful of rows (recent / attention / images) carry document bodies.
-      const inCollection = eq(t.collection, args.collection);
+      // Trashed documents don't count on the dashboard.
+      const inCollection = and(eq(t.collection, args.collection), sql`${t.deletedAt} is null`)!;
       const working = sql`coalesce(${t.draftData}, ${t.data})`;
       const attention = sql`(${t.status} <> 'published' or ${t.draftData} is not null)`;
       const newest = sql`${t.updatedAt} desc, ${t.id} collate "C" asc`;

@@ -52,13 +52,18 @@ function matches(record: DocumentRecord, where: Where, source: "published" | "dr
 }
 
 /** Sets or clears an optional schedule column (kept absent when `null`, like the Postgres adapter). */
-function setSchedule(record: DocumentRecord, key: "publishAt" | "unpublishAt", value: Date | null | undefined) {
+function setSchedule(record: DocumentRecord, key: "publishAt" | "unpublishAt" | "deletedAt", value: Date | null | undefined) {
   if (value === undefined) return;
   if (value === null) delete record[key];
   else record[key] = new Date(value);
 }
 
 /** Published reads hide rows whose scheduled unpublish time has passed (even before cron runs). */
+function inTrashScope(record: DocumentRecord, trash: "exclude" | "include" | "only"): boolean {
+  if (trash === "include") return true;
+  return (record.deletedAt != null) === (trash === "only");
+}
+
 function expired(record: DocumentRecord, now: Date): boolean {
   return record.unpublishAt != null && record.unpublishAt.getTime() <= now.getTime();
 }
@@ -120,10 +125,11 @@ export function memoryAdapter(): DatabaseAdapter {
     async find(args) {
       const { collection, source, where = {}, search, sort, limit = 10, page = 1 } = args;
       const now = args.now ?? new Date();
+      const trash = args.trash ?? "exclude";
       const query = search?.trim() ?? "";
       const scores = query ? new Map<string, number>() : null;
       const rows = [...records.values()].filter((row) => {
-        if (row.collection !== collection) return false;
+        if (row.collection !== collection || !inTrashScope(row, trash)) return false;
         // Published reads skip drafts and documents whose scheduled unpublish has passed.
         if (source !== "draft" && (row.status !== "published" || expired(row, now))) return false;
         if (!matches(row, where, source)) return false;
@@ -164,7 +170,7 @@ export function memoryAdapter(): DatabaseAdapter {
     async create(input) {
       assertUnique(input);
       const timestamp = new Date();
-      const { publishAt, unpublishAt } = input;
+      const { publishAt, unpublishAt, deletedAt } = input;
       const record: DocumentRecord = {
         id: crypto.randomUUID(),
         collection: input.collection,
@@ -177,6 +183,7 @@ export function memoryAdapter(): DatabaseAdapter {
       };
       setSchedule(record, "publishAt", publishAt);
       setSchedule(record, "unpublishAt", unpublishAt);
+      setSchedule(record, "deletedAt", deletedAt);
       records.set(record.id, record);
       searchIndex.set(record.id, {
         live: input.searchText !== undefined ? (input.searchText ?? "") : fallbackSearchText(record.slug, record.data),
@@ -201,6 +208,7 @@ export function memoryAdapter(): DatabaseAdapter {
       if (input.draftData !== undefined) record.draftData = structuredClone(input.draftData);
       setSchedule(record, "publishAt", input.publishAt);
       setSchedule(record, "unpublishAt", input.unpublishAt);
+      setSchedule(record, "deletedAt", input.deletedAt);
       assertUnique(record, id);
       // Strictly increasing, so updatedAt works as the record's version (see DatabaseAdapter.update).
       record.updatedAt = new Date(Math.max(Date.now(), previous.updatedAt.getTime() + 1));
@@ -264,7 +272,7 @@ export function memoryAdapter(): DatabaseAdapter {
         r.unpublishAt && r.status === "published" ? r.unpublishAt.getTime() : Infinity,
       );
       const rows = [...records.values()]
-        .filter((r) => dueAt(r) <= at)
+        .filter((r) => r.deletedAt == null && dueAt(r) <= at)
         .sort((a, b) => dueAt(a) - dueAt(b) || compareStrings(a.id, b.id));
       return structuredClone(limit > 0 ? rows.slice(0, limit) : rows);
     },

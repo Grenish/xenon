@@ -61,7 +61,7 @@ export interface FieldHookRun {
   data: AnyDoc;
   draft: boolean;
   originalDoc: AnyDoc | null;
-  operation?: HookOperation | "unpublish";
+  operation?: HookOperation | "unpublish" | "restore";
 }
 
 async function walkFields(

@@ -10,7 +10,7 @@ import type { XenonInstance } from "../server/types";
 import { createXenon } from "../server/xenon";
 import {
   documentSummaryTitle,
-  type AccountSession, type ActionResult, type AdminDoc, type AdminUserInfo, type AdminVersionPage,
+  type AccountSession, type ActionResult, type AdminDoc, type AdminUserInfo, type AdminVersionPage, type BulkAction, type BulkResult,
   type DocSummary, type PreviewInfo, type SearchInput, type SearchResult,
 } from "../ui/shared/services";
 
@@ -30,6 +30,8 @@ export type AdminActionInput =
   | { type: "doc.restoreVersion"; collection: string; id: string; versionId: string; expectedUpdatedAt?: string }
   | { type: "doc.schedule"; collection: string; id: string; publishAt?: string | null; unpublishAt?: string | null }
   | { type: "doc.remove"; collection: string; id: string }
+  | { type: "doc.duplicate"; collection: string; id: string }
+  | { type: "doc.bulk"; collection: string; ids: string[]; action: BulkAction }
   | ({ type: "doc.search" } & SearchInput)
   | { type: "global.get"; slug: string }
   | { type: "global.save"; slug: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string }
@@ -516,6 +518,45 @@ export async function dispatchAdminActionWithHeaders(
           publishAt: scheduleInput(input.publishAt), unpublishAt: scheduleInput(input.unpublishAt),
         });
         return { result: ok(await loadAdminDoc(xenon, config, input.collection, input.id, user)), headers: responseHeaders };
+      }
+
+      case "doc.duplicate": {
+        const collection = collectionOf(input.collection);
+        const source = await xenon.findById({ ...ctx, collection: input.collection, id: input.id, draft: true });
+        if (!source) throw new XenonError("NOT_FOUND", "This document no longer exists.");
+        const titleKey = titleFieldKey(collection);
+        const title = titleKey ? (source as Record<string, unknown>)[titleKey] : undefined;
+        const copy = await xenon.duplicate({
+          ...ctx, collection: input.collection, id: input.id,
+          ...(titleKey && typeof title === "string" && title.trim() ? { data: { [titleKey]: `${title} (copy)` } as never } : {}),
+        });
+        return { result: ok(await loadAdminDoc(xenon, config, input.collection, (copy as { id: string }).id, user)), headers: responseHeaders };
+      }
+
+      case "doc.bulk": {
+        collectionOf(input.collection);
+        const actions: Record<BulkAction, (id: string) => Promise<unknown>> = {
+          publish: (id) => xenon.update({ ...ctx, collection: input.collection, id, data: {} as never, draft: false }),
+          unpublish: (id) => xenon.unpublish({ ...ctx, collection: input.collection, id }),
+          delete: (id) => xenon.delete({ ...ctx, collection: input.collection, id }),
+          restore: (id) => xenon.restore({ ...ctx, collection: input.collection, id }),
+          purge: (id) => xenon.purge({ ...ctx, collection: input.collection, id }),
+        };
+        const run = actions[input.action];
+        if (!run) throw new XenonError("BAD_REQUEST", "Unknown bulk action.");
+        if (!Array.isArray(input.ids) || input.ids.length > 100) throw new XenonError("BAD_REQUEST", "Select between 1 and 100 documents.");
+        const ids = [...new Set(input.ids.filter((id): id is string => typeof id === "string"))];
+        const data: BulkResult = { done: [], failed: [] };
+        // One at a time: each runs the full write path (hooks, versions, onChange).
+        for (const id of ids) {
+          try {
+            await run(id);
+            data.done.push(id);
+          } catch (err) {
+            data.failed.push({ id, message: err instanceof Error ? err.message : String(err) });
+          }
+        }
+        return { result: ok(data), headers: responseHeaders };
       }
 
       case "doc.remove": {

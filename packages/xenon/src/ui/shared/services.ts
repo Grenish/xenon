@@ -110,6 +110,10 @@ export interface AdminServices {
   /** Set (ISO string) or clear (`null`) a scheduled publish / unpublish; omitted keys stay as they are. */
   schedule(input: { collection: string; id: string; publishAt?: string | null; unpublishAt?: string | null }): Promise<ActionResult<AdminDoc>>;
   remove(input: { collection: string; id: string }): Promise<ActionResult<{ id: string }>>;
+  /** Copy a document into a new draft ("… (copy)"). */
+  duplicate(input: { collection: string; id: string }): Promise<ActionResult<AdminDoc>>;
+  /** Run one action over several documents of a collection (at most 100). */
+  bulk(input: { collection: string; ids: string[]; action: BulkAction }): Promise<ActionResult<BulkResult>>;
   search(input: SearchInput): Promise<ActionResult<SearchResult>>;
   /** Upload to an upload collection (create, or replace the file when `id` is given). */
   upload(input: { collection: string; id?: string; file: File; data: Record<string, unknown>; expectedUpdatedAt?: string }): Promise<ActionResult<AdminDoc>>;
@@ -135,7 +139,17 @@ export type AdminTheme = "light" | "dark" | "system";
 export interface AdminListRow extends DocSummary {
   changed?: boolean;
   values: Record<string, unknown>;
+  /** Trash view: when it was moved to the trash (ISO). */
+  deletedAt?: string;
 }
+
+/** What a bulk action did to each selected document (#18). */
+export interface BulkResult {
+  done: string[];
+  failed: { id: string; message: string }[];
+}
+
+export type BulkAction = "publish" | "unpublish" | "delete" | "restore" | "purge";
 
 export interface AdminTeamMember extends AdminUserInfo {
   createdAt: string;

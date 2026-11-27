@@ -28,7 +28,7 @@ import {
   matchesIfNoneMatch,
   PRIVATE_NO_STORE,
 } from "./cache";
-import { handleCronRoute, handleEditorialRoute, isEditorialRoute } from "./editorial";
+import { handleCronRoute, handleEditorialRoute, isEditorialRoute, parsePermanentParam, parseTrashParam } from "./editorial";
 import { parseDraft, parseQuery, parseReadQuery } from "./query";
 
 export interface CreateHandlerOptions<Cfg extends XenonConfig = XenonConfig> {
@@ -604,12 +604,14 @@ export async function handleApiSegments(
         const lookup = (s: string) => xenon.getCollection(s);
         if (!id) {
           const parsed = parseQuery(params, collection, lookup);
+          const trash = parseTrashParam(params);
           const isPublic =
             !parsed.draft &&
+            !trash &&
             !collection.access?.read &&
             !populatesRestrictedCollection(collection, parsed.populate, lookup);
           if (!isPublic) noStoreOnError = true;
-          const result = await xenon.find({ ...shared, ...parsed });
+          const result = await xenon.find({ ...shared, ...parsed, ...(trash ? { trash } : {}) });
           return await jsonCachedResponse(request, result, { isPublic, cacheControl: options?.cacheControl });
         }
         const read = parseReadQuery(params, collection, lookup);
@@ -695,7 +697,7 @@ export async function handleApiSegments(
       }
       case "DELETE": {
         if (!id) throw new XenonError("NOT_FOUND", "Route not found.");
-        return Response.json(await xenon.delete({ ...shared, id }));
+        return Response.json(await (parsePermanentParam(params) ? xenon.purge({ ...shared, id }) : xenon.delete({ ...shared, id })));
       }
       default:
         throw new XenonError("NOT_FOUND", "Route not found.");

@@ -381,6 +381,11 @@ export interface CollectionConfig<
   drafts?: boolean;
   /** Version history (see `VersionsOption`). Default `false`. */
   versions?: VersionsOption;
+  /**
+   * Soft delete (#18): `delete` moves documents to a trash they can be restored from; `purge`
+   * deletes for good. Default `false` (deletes are permanent).
+   */
+  trash?: boolean;
   /** Turns this into an upload (media) collection. */
   upload?: Up;
   admin?: CollectionAdminOptions<Fs, CollectionHookDoc<Fs, Up>>;
@@ -405,6 +410,7 @@ export interface AnyCollection {
   slugFrom?: string;
   drafts?: boolean;
   versions?: VersionsOption;
+  trash?: boolean;
   upload?: boolean | UploadOptions;
   admin?: {
     useAsTitle?: string;

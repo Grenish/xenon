@@ -425,6 +425,40 @@ export function runDatabaseAdapterConformance(name: string, factory: () => Promi
       expect(await db.findDue({ now: t("07:00"), limit: 10 })).toEqual([]);
     });
 
+    /* -------------------------------- trash (#18) -------------------------------- */
+
+    test("trash: excluded by default, `only` / `include` scopes, restore with null, and keeps unique slugs", async () => {
+      const live = await create({ title: "Live" }, { slug: "live" });
+      const binned = await create({ title: "Binned" }, { slug: "binned" });
+      const at = new Date("2030-03-01T00:00:00.000Z");
+      const trashed = await db.update("posts", binned.id, { deletedAt: at });
+      expect(trashed?.deletedAt).toEqual(at);
+      expect("deletedAt" in live).toBe(false);
+
+      const ids = async (trash?: "exclude" | "include" | "only", source: "published" | "draft" = "draft") =>
+        (await db.find({ collection: "posts", source, trash, limit: 0 })).docs.map((r) => r.id).sort();
+      expect(await ids()).toEqual([live.id]);
+      expect(await ids(undefined, "published")).toEqual([live.id]);
+      expect(await ids("only")).toEqual([binned.id]);
+      expect(await ids("include")).toEqual([live.id, binned.id].sort());
+      expect((await db.find({ collection: "posts", source: "draft", trash: "only" })).totalDocs).toBe(1);
+      // findById still returns trashed rows: the caller decides.
+      expect((await db.findById("posts", binned.id))?.deletedAt).toEqual(at);
+      // A trashed row keeps its slug.
+      await expect(create({}, { slug: "binned" })).rejects.toBeInstanceOf(SlugConflictError);
+
+      const restored = await db.update("posts", binned.id, { deletedAt: null });
+      expect(restored?.deletedAt ?? null).toBeNull();
+      expect(await ids()).toEqual([live.id, binned.id].sort());
+    });
+
+    test("trash: trashed rows are never due for scheduled work", async () => {
+      const at = new Date("2030-01-01T10:00:00.000Z");
+      const row = await create({}, { status: "draft", draftData: { n: 1 }, publishAt: at });
+      await db.update("posts", row.id, { deletedAt: at });
+      expect(await db.findDue!({ now: new Date("2030-01-02T00:00:00.000Z"), limit: 10 })).toEqual([]);
+    });
+
     /* ------------------------------ versions (#15) ------------------------------ */
 
     test("versions: create, list newest first with pagination, read, isolate by collection and document", async () => {

@@ -130,6 +130,11 @@ export interface FindOptions<
   page?: number;
   /** Read working copies (`draftData ?? data`) of all documents. Default `false`. */
   draft?: boolean;
+  /**
+   * List the trash instead (collections with `trash`): only trashed documents, read as working
+   * copies (needs draft read access). Default `false`.
+   */
+  trash?: boolean;
   /** Inclusion projection over returned document fields (`id` is always preserved). */
   select?: Sel;
   /** Explicit batched population of `relation` / `media` fields (zero N+1). */
@@ -145,6 +150,8 @@ export interface FindByIdOptions<
   collection: S;
   id: string;
   draft?: boolean;
+  /** Also return the document when it is in the trash (otherwise a trashed document reads as `null`). */
+  trash?: boolean;
   /** Inclusion projection over returned document fields (`id` is always preserved). */
   select?: Sel;
   /** Explicit batched population of `relation` / `media` fields (zero N+1). */
@@ -217,6 +224,14 @@ export interface UpdateOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
 export interface ByIdOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
   collection: S;
   id: string;
+}
+
+export interface DuplicateOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
+  collection: S;
+  /** The document to copy. */
+  id: string;
+  /** Values to change on the copy (e.g. a new title), merged like an `update`. */
+  data?: InferUpdateInput<Coll<Cfg, S>>;
 }
 
 /* ------------------------------- Versions (#15) ------------------------------- */
@@ -382,8 +397,20 @@ export interface XenonInstance<Cfg extends XenonConfig = XenonConfig> {
   /** Throws `XenonError("NOT_FOUND")`. */
   update<S extends Slug<Cfg>>(options: UpdateOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
   unpublish<S extends Slug<Cfg>>(options: ByIdOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
-  /** Returns the deleted document. Throws `XenonError("NOT_FOUND")`. */
+  /**
+   * Returns the deleted document. Collections with `trash` move it to the trash instead (it stops
+   * appearing in reads and can be restored). Throws `XenonError("NOT_FOUND")`.
+   */
   delete<S extends Slug<Cfg>>(options: ByIdOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
+  /** Brings a document back from the trash (`update` access). Returns its working copy. */
+  restore<S extends Slug<Cfg>>(options: ByIdOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
+  /** Deletes a document for good, from the trash or not (`delete` access), with its file and versions. */
+  purge<S extends Slug<Cfg>>(options: ByIdOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
+  /**
+   * Copies a document into a new one (a draft when the collection uses drafts) through `create`.
+   * Values of `unique` fields are left out, and the slug is generated afresh. Not for upload collections.
+   */
+  duplicate<S extends Slug<Cfg>>(options: DuplicateOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
 
   /** A document's versions, newest first (collections with `versions`). Needs draft read access. */
   findVersions<S extends Slug<Cfg>>(options: FindVersionsOptions<Cfg, S>): Promise<PaginatedResult<DocumentVersion<DocOf<Cfg, S>>>>;
