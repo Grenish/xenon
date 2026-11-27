@@ -26,6 +26,8 @@ export interface DefineCollectionInput<
     defaultColumns?: readonly NoInfer<(keyof Fs & string) | SystemKey>[];
     group?: string;
     description?: string;
+    /** Returns the preview URL for a document (relative path or trusted-origin URL), or nullish if not previewable. Server-only. */
+    previewUrl?: (doc: NoInfer<CollectionHookDoc<Fs, Up>>) => string | null | undefined;
   };
   access?: CollectionAccess;
   /** Lifecycle hooks, typed from `fields`. Server-only. */

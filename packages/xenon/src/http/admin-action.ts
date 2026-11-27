@@ -5,12 +5,13 @@ import { type DocumentRecord, SlugConflictError, type Where } from "../adapters/
 import { resolveSecret, toRole } from "../auth";
 import { findGlobalRecord } from "../server/globals";
 import { signPresenceToken } from "../server/presence";
+import { createPreviewSession } from "../server/preview";
 import type { XenonInstance } from "../server/types";
 import { createXenon } from "../server/xenon";
 import {
   documentSummaryTitle,
   type AccountSession, type ActionResult, type AdminDoc, type AdminUserInfo,
-  type DocSummary, type SearchInput, type SearchResult,
+  type DocSummary, type PreviewInfo, type SearchInput, type SearchResult,
 } from "../ui/shared/services";
 
 /**
@@ -40,7 +41,8 @@ export type AdminActionInput =
   | { type: "account.sessions" }
   | { type: "account.revokeSession"; sessionId: string }
   | { type: "account.revokeOtherSessions" }
-  | { type: "presence.token" };
+  | { type: "presence.token" }
+  | { type: "preview.url"; kind: "collection" | "global"; slug: string; id?: string; data?: Record<string, unknown>; docSlug?: string | null };
 
 export type AdminActionResult = ActionResult<unknown>;
 
@@ -315,6 +317,25 @@ export async function listAllUsers(
   );
 }
 
+function requestOriginFromHeaders(headers: Headers): string | undefined {
+  const origin = headers.get("origin");
+  if (origin) return origin;
+  const referer = headers.get("referer");
+  if (referer) {
+    try {
+      return new URL(referer).origin;
+    } catch {
+      // Ignore malformed Referer headers.
+    }
+  }
+  const host = headers.get("x-forwarded-host") ?? headers.get("host");
+  if (host) {
+    const proto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "http";
+    return `${proto}://${host}`;
+  }
+  return undefined;
+}
+
 function copySetCookies(source: Headers | undefined, target: Headers): void {
   if (!source) return;
   const cookies = typeof source.getSetCookie === "function" ? source.getSetCookie() : [];
@@ -426,6 +447,25 @@ export async function dispatchAdminActionWithHeaders(
         return { result: ok(await signPresenceToken(resolveSecret(config), { id: user.id, name: user.name ?? null, email: user.email })), headers: responseHeaders };
       }
 
+      case "preview.url": {
+        if (input.kind !== "collection" && input.kind !== "global") {
+          throw new XenonError("BAD_REQUEST", "Invalid preview target kind.");
+        }
+        const session = await createPreviewSession(config, xenon, {
+          kind: input.kind,
+          slug: requireString(input.slug, "slug"),
+          id: typeof input.id === "string" && input.id ? input.id : undefined,
+          data: input.data && typeof input.data === "object" && !Array.isArray(input.data) ? input.data : undefined,
+          docSlug: input.docSlug === null || typeof input.docSlug === "string" ? input.docSlug : undefined,
+          user,
+          requestUrl: requestOriginFromHeaders(headers),
+        });
+        const info: PreviewInfo | null = session
+          ? { url: session.url, enterUrl: session.enterUrl, targetOrigin: session.targetOrigin }
+          : null;
+        return { result: ok(info), headers: responseHeaders };
+      }
+
       case "doc.unpublish": {
         await xenon.unpublish({ ...ctx, collection: input.collection, id: input.id });
         return { result: ok(await loadAdminDoc(xenon, config, input.collection, input.id, user)), headers: responseHeaders };
@@ -472,21 +512,14 @@ export async function dispatchAdminActionWithHeaders(
           const docs = ids.flatMap((id) => (byId.has(id) ? [toSummary(collection, byId.get(id) as Record<string, unknown>)] : []));
           return { result: ok<SearchResult>({ docs, totalDocs: docs.length, page: 1, hasNextPage: false }), headers: responseHeaders };
         }
-        const titleKey = titleFieldKey(collection);
-        const q = input.query?.trim();
-        if (q) {
-          where.or = [
-            ...(titleKey ? [{ [titleKey]: { contains: q } }] : []),
-            { slug: { contains: q } },
-            ...(collection.upload ? [{ filename: { contains: q } }] : []),
-          ];
-        }
+        const q = input.query?.trim().slice(0, 500);
         const res = await xenon.find({
           ...ctx,
           collection: input.collection,
           draft: true,
-          where,
-          sort: "-updatedAt",
+          where: Object.keys(where).length ? where : undefined,
+          search: q || undefined,
+          sort: q ? undefined : "-updatedAt",
           limit,
           page: input.page ?? 1,
         });

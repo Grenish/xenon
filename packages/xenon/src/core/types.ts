@@ -342,11 +342,16 @@ export type TextFieldKeys<Fs extends FieldsMap> = {
 }[keyof Fs] &
   string;
 
-export interface CollectionAdminOptions<Fs extends FieldsMap = FieldsMap> {
+export interface CollectionAdminOptions<
+  Fs extends FieldsMap = FieldsMap,
+  Doc = Record<string, unknown>,
+> {
   useAsTitle?: keyof Fs & string;
   defaultColumns?: readonly ((keyof Fs & string) | SystemKey)[];
   group?: string;
   description?: string;
+  /** Returns the preview URL for a document (relative path or trusted-origin URL), or nullish if not previewable. Server-only. */
+  previewUrl?: (doc: Doc) => string | null | undefined;
 }
 
 export interface CollectionConfig<
@@ -363,7 +368,7 @@ export interface CollectionConfig<
   drafts?: boolean;
   /** Turns this into an upload (media) collection. */
   upload?: Up;
-  admin?: CollectionAdminOptions<Fs>;
+  admin?: CollectionAdminOptions<Fs, CollectionHookDoc<Fs, Up>>;
   access?: CollectionAccess;
   /** Lifecycle hooks (see `CollectionHooks`). Server-only. */
   hooks?: CollectionHooks<CollectionHookData<Fs, Up>, CollectionHookDoc<Fs, Up>>;
@@ -390,6 +395,8 @@ export interface AnyCollection {
     defaultColumns?: readonly string[];
     group?: string;
     description?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    previewUrl?: (doc: any) => string | null | undefined;
   };
   access?: CollectionAccess;
   hooks?: AnyCollectionHooks;

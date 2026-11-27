@@ -19,8 +19,10 @@ import {
   UniqueConflictError,
   UpdateConflictError,
 } from "../types";
+import { fallbackSearchText } from "../search";
 import { authDDL, authDrizzleSchema } from "./auth-schema";
 import { DOCUMENTS_DDL, xenonDocuments as t } from "./schema";
+import { compileSearchFilter, compileSearchQuery, compileSearchRankOrder } from "./search";
 import { compileOrderBy, compileWhere, pgStringLiteral } from "./where";
 
 interface Connection {
@@ -307,10 +309,15 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
         compileWhere(args.where, args.source, indexedFields),
       ];
       if (args.source === "published") filters.push(sql`${t.status} = 'published'`);
+      const searchQuery = compileSearchQuery(args.search);
+      if (searchQuery) filters.push(compileSearchFilter(args.source, searchQuery));
       const condition = and(...filters);
 
+      const orderBy = searchQuery && !args.sort?.trim()
+        ? compileSearchRankOrder(args.source, searchQuery)
+        : compileOrderBy(args.sort, args.source);
       const [{ total } = { total: 0 }] = await db().select({ total: count() }).from(t).where(condition);
-      let query = db().select().from(t).where(condition).orderBy(compileOrderBy(args.sort, args.source)).$dynamic();
+      let query = db().select().from(t).where(condition).orderBy(orderBy).$dynamic();
       if (limit > 0) query = query.limit(limit).offset((page - 1) * limit);
       // limit 0 = everything on page 1; any later page is out of range.
       const rows = limit === 0 && page > 1 ? [] : ((await query) as Row[]);
@@ -339,6 +346,12 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
 
     async create(input: CreateRecordInput) {
       const now = new Date();
+      const liveText = input.searchText !== undefined ? (input.searchText ?? "") : fallbackSearchText(input.slug, input.data);
+      const draftText = input.draftSearchText !== undefined
+        ? input.draftSearchText
+        : input.draftData !== null
+          ? fallbackSearchText(input.slug, input.draftData)
+          : null;
       return guard(input.collection, input.slug, async () => {
         const [row] = await db()
           .insert(t)
@@ -351,6 +364,8 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
             draftData: input.draftData,
             createdAt: now,
             updatedAt: now,
+            searchVector: sql`to_tsvector('simple', ${liveText})` as unknown as string,
+            draftSearchVector: draftText === null ? null : (sql`to_tsvector('simple', ${draftText})` as unknown as string),
           })
           .returning();
         return toRecord(row as Row);
@@ -364,6 +379,20 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
         if (input.status !== undefined) set.status = input.status;
         if (input.data !== undefined) set.data = input.data;
         if (input.draftData !== undefined) set.draftData = input.draftData;
+        if (input.searchText !== undefined) {
+          set.searchVector = sql`to_tsvector('simple', ${input.searchText ?? ""})` as unknown as string;
+        } else if (input.data !== undefined) {
+          set.searchVector = sql`to_tsvector('simple', ${fallbackSearchText(input.slug ?? null, input.data)})` as unknown as string;
+        }
+        if (input.draftSearchText !== undefined) {
+          set.draftSearchVector = input.draftSearchText === null
+            ? null
+            : (sql`to_tsvector('simple', ${input.draftSearchText})` as unknown as string);
+        } else if (input.draftData !== undefined) {
+          set.draftSearchVector = input.draftData === null
+            ? null
+            : (sql`to_tsvector('simple', ${fallbackSearchText(input.slug ?? null, input.draftData)})` as unknown as string);
+        }
         const now = new Date().toISOString();
         const match = and(eq(t.collection, collection), eq(t.id, id));
         const [row] = await db()

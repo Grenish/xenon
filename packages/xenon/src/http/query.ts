@@ -489,10 +489,13 @@ export function parseReadQuery(
 
 export interface ParsedQuery extends ParsedReadQuery {
   where?: Where;
+  search?: string;
   sort?: string;
   limit: number;
   page: number;
 }
+
+const MAX_SEARCH_LENGTH = 500;
 
 /** Parse the REST query grammar without touching auth, Next.js, or a database. */
 export function parseQuery(
@@ -525,12 +528,18 @@ export function parseQuery(
     }
     where = parseWhere(collection, input);
   }
+  const rawSearch = single(params, "search");
+  const search = rawSearch?.trim() || undefined;
+  if (search && search.length > MAX_SEARCH_LENGTH) {
+    return bad(`search query is too long (maximum ${MAX_SEARCH_LENGTH} characters).`);
+  }
   const sort = single(params, "sort");
   if (sort !== null) fieldType(collection, sort.startsWith("-") ? sort.slice(1) : sort);
   const limit = integer(single(params, "limit"), 10, 0, "limit");
   const read = parseReadQuery(params, collection, getCollection);
   return {
     ...(where ? { where } : {}),
+    ...(search ? { search } : {}),
     ...(sort !== null ? { sort } : {}),
     limit: limit === 0 ? 100 : Math.min(limit, 100),
     page: integer(single(params, "page"), 1, 1, "page"),

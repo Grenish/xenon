@@ -1,5 +1,11 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { customType, index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 /**
  * The single polymorphic content table. Collection schemas live in code and documents in JSONB,
@@ -16,6 +22,8 @@ export const xenonDocuments = pgTable(
     draftData: jsonb("draft_data").$type<Record<string, unknown> | null>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    searchVector: tsvector("search_vector"),
+    draftSearchVector: tsvector("draft_search_vector"),
   },
   (t) => [
     uniqueIndex("xenon_documents_collection_slug_idx")
@@ -43,4 +51,10 @@ export const DOCUMENTS_DDL = [
     ON "xenon_documents" ("collection", "status", "created_at")`,
   `CREATE INDEX IF NOT EXISTS "xenon_documents_data_gin_idx"
     ON "xenon_documents" USING gin ("data" jsonb_path_ops)`,
+  `ALTER TABLE "xenon_documents" ADD COLUMN IF NOT EXISTS "search_vector" tsvector`,
+  `ALTER TABLE "xenon_documents" ADD COLUMN IF NOT EXISTS "draft_search_vector" tsvector`,
+  `CREATE INDEX IF NOT EXISTS "xenon_documents_search_vector_gin_idx"
+    ON "xenon_documents" USING gin ("search_vector")`,
+  `CREATE INDEX IF NOT EXISTS "xenon_documents_draft_search_vector_gin_idx"
+    ON "xenon_documents" USING gin ("draft_search_vector")`,
 ];
