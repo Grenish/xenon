@@ -30,3 +30,5 @@ export type { CollectionListViewProps, ListRow } from "./admin/collection-list";
 export { SettingsView } from "./admin/settings";
 export { DocumentEditor } from "./form/document-editor";
 export { GlobalEditor } from "./form/global-editor";
+export { PreviewSplitPane } from "./form/preview-pane";
+export type { PreviewSplitPaneProps, PreviewViewport } from "./form/preview-pane";

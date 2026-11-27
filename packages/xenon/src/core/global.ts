@@ -26,9 +26,11 @@ export interface GlobalAccess {
   update?: AccessFn;
 }
 
-export interface GlobalAdminOptions {
+export interface GlobalAdminOptions<Doc = Record<string, unknown>> {
   group?: string;
   description?: string;
+  /** Returns the preview URL for this global (relative path or trusted-origin URL), or nullish if not previewable. Server-only. */
+  previewUrl?: (doc: Doc) => string | null | undefined;
 }
 
 export interface GlobalConfig<
@@ -40,7 +42,7 @@ export interface GlobalConfig<
   fields: Fs;
   /** Draft / publish workflow. Default `true`. */
   drafts?: boolean;
-  admin?: GlobalAdminOptions;
+  admin?: GlobalAdminOptions<Prettify<GlobalSystemFields<Slug> & InferFieldsData<Fs>>>;
   access?: GlobalAccess;
 }
 
@@ -52,7 +54,12 @@ export interface AnyGlobal {
   label?: string;
   fields: FieldsMap;
   drafts?: boolean;
-  admin?: GlobalAdminOptions;
+  admin?: {
+    group?: string;
+    description?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    previewUrl?: (doc: any) => string | null | undefined;
+  };
   access?: GlobalAccess;
 }
 
@@ -64,7 +71,7 @@ export interface DefineGlobalInput<
   label?: string;
   fields: Fs;
   drafts?: boolean;
-  admin?: GlobalAdminOptions;
+  admin?: GlobalAdminOptions<NoInfer<Prettify<GlobalSystemFields<Slug> & InferFieldsData<Fs>>>>;
   access?: GlobalAccess;
 }
 
@@ -255,6 +262,9 @@ export function validateGlobalsConfig(
     seen.add(g.slug);
   }
   for (const g of globals) {
+    if (g.admin?.previewUrl !== undefined && typeof g.admin.previewUrl !== "function") {
+      throw configError(`[xenon] Invalid config in global "${g.slug}": admin.previewUrl must be a function.`);
+    }
     const fields = g.fields as Record<string, Field>;
     forbidGlobalIndexes(g.slug, fields, "", configError);
     try {

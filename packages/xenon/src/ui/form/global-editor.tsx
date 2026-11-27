@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { RiEditLine, RiEyeOffLine, RiLockLine, RiMoreLine, RiSave3Line } from "@remixicon/react";
+import { RiEditLine, RiEyeLine, RiEyeOffLine, RiLockLine, RiMoreLine, RiSave3Line } from "@remixicon/react";
 import { GLOBALS_COLLECTION } from "../../core/types";
 import { registerDirtyBlocker } from "../admin/dirty-guard";
 import { formatDate, StatusBadge, timeAgo } from "../admin/format";
@@ -30,6 +30,7 @@ import { useAdminRouter } from "../shared/router";
 import type { ActionResult, AdminDoc } from "../shared/services";
 import { FormRenderer } from "./form-renderer";
 import { initialData, normalizeFormData, validateFields } from "./model";
+import { PreviewSplitPane } from "./preview-pane";
 
 export function GlobalEditor({ global, doc }: { global: ClientGlobal; doc: AdminDoc | null }) {
   const { services } = useAdmin();
@@ -40,6 +41,7 @@ export function GlobalEditor({ global, doc }: { global: ClientGlobal; doc: Admin
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
   const [pending, setPending] = useState<"save" | "publish" | "unpublish" | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [pendingLeave, setPendingLeave] = useState<{ proceed: () => void } | null>(null);
   const [conflict, setConflict] = useState<{ latest: AdminDoc; draft: boolean } | null>(null);
   const busy = useRef(false);
@@ -271,6 +273,22 @@ export function GlobalEditor({ global, doc }: { global: ClientGlobal; doc: Admin
   const visibleSidebar = sidebarFields.some((field) => !field.admin.hidden);
   const canUnpublish = isDraftsEnabled && current?.status === "published";
   const showMoreMenu = isDraftsEnabled;
+  const liveDoc = useMemo(
+    () => ({
+      id: current?.id ?? "",
+      slug: global.slug,
+      status: current?.status ?? "draft",
+      createdAt: current?.createdAt ?? "",
+      updatedAt: current?.updatedAt ?? "",
+      ...data,
+    }),
+    [current, global.slug, data],
+  );
+  const previewToggle = global.admin.hasPreview ? (
+    <Button type="button" variant={previewOpen ? "secondary" : "outline"} aria-pressed={previewOpen} onClick={() => setPreviewOpen((open) => !open)}>
+      <RiEyeLine data-icon="inline-start" />Preview
+    </Button>
+  ) : null;
 
   useShellBar({
     crumbs: [{ label: global.admin.group ?? "Globals" }, { label: global.label }],
@@ -291,6 +309,7 @@ export function GlobalEditor({ global, doc }: { global: ClientGlobal; doc: Admin
     ),
     actions: readOnly ? (
       <div className="xe:flex xe:items-center xe:gap-1.5">
+        {previewToggle}
         <Button type="button" onClick={presence.takeover}>
           <RiEditLine data-icon="inline-start" />
           {presence.mode === "taken" && !presence.holder ? "Continue editing" : "Take over"}
@@ -298,6 +317,7 @@ export function GlobalEditor({ global, doc }: { global: ClientGlobal; doc: Admin
       </div>
     ) : (
       <div className="xe:flex xe:items-center xe:gap-1.5">
+        {previewToggle}
         {isDraftsEnabled ? (
           <Button type="button" variant="outline" className="xe:hidden xe:sm:inline-flex" disabled={!!pending} onClick={() => void save(true)}>
             {pending === "save" ? <Spinner /> : null}Save draft
@@ -344,6 +364,15 @@ export function GlobalEditor({ global, doc }: { global: ClientGlobal; doc: Admin
   const hasPublishing = isDraftsEnabled || !!current;
 
   return (
+    <PreviewSplitPane
+      open={previewOpen}
+      kind="global"
+      slug={global.slug}
+      liveDoc={liveDoc}
+      formData={data}
+      savedVersion={current?.updatedAt}
+      onClose={() => setPreviewOpen(false)}
+    >
     <div data-xe-full className="xe:flex xe:flex-col xe:lg:grid xe:lg:min-h-[calc(100dvh-3.5rem-2px)] xe:lg:grid-cols-[minmax(0,1fr)_21rem]">
       <div className="xe:flex xe:min-w-0 xe:flex-col xe:gap-6 xe:px-4 xe:pt-6 xe:pb-10 xe:sm:px-8 xe:lg:pt-10">
         {readOnly ? <GlobalLockBanner presence={presence} label={global.label} dirty={dirty} /> : null}
@@ -464,6 +493,7 @@ export function GlobalEditor({ global, doc }: { global: ClientGlobal; doc: Admin
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </PreviewSplitPane>
   );
 }
 

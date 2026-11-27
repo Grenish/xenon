@@ -1,6 +1,6 @@
 {
   "name": "xenon-cms",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Lightweight, code-first, Next.js-native headless CMS.",
   "license": "MIT",
   "repository": {
@@ -17,7 +17,8 @@
   "sideEffects": [
     "*.css",
     "./dist/client.js",
-    "./dist/next-client.js"
+    "./dist/next-client.js",
+    "./dist/live-preview.js"
   ],
   "files": [
     "dist"
@@ -50,6 +51,10 @@
     "./react": {
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js"
+    },
+    "./live-preview": {
+      "types": "./dist/live-preview.d.ts",
+      "import": "./dist/live-preview.js"
     },
     "./postgres": {
       "types": "./dist/postgres.d.ts",

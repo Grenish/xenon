@@ -70,6 +70,7 @@ export interface ClientCollection {
     description: string | null;
     /** Autosave delay in ms, or `null` when autosave is off. */
     autosave?: number | null;
+    hasPreview?: boolean;
   };
 }
 
@@ -82,6 +83,7 @@ export interface ClientGlobal {
   admin: {
     group: string | null;
     description: string | null;
+    hasPreview?: boolean;
   };
 }
 
@@ -215,6 +217,7 @@ export function toClientCollection(collection: AnyCollection, options: { schedul
       group: collection.admin?.group ?? null,
       description: collection.admin?.description ?? null,
       autosave: autosaveInterval(collection),
+      hasPreview: typeof collection.admin?.previewUrl === "function",
     },
   };
 }
@@ -228,6 +231,7 @@ export function toClientGlobal(global: AnyGlobal): ClientGlobal {
     admin: {
       group: global.admin?.group ?? null,
       description: global.admin?.description ?? null,
+      hasPreview: typeof global.admin?.previewUrl === "function",
     },
   };
 }

@@ -123,6 +123,8 @@ export interface FindOptions<
 > extends CallContext {
   collection: S;
   where?: Where;
+  /** Full-text search across text fields, rich text bodies, slug, and upload filename (Postgres `tsvector` GIN index; portable fallback in memory). */
+  search?: string;
   sort?: string;
   limit?: number;
   page?: number;

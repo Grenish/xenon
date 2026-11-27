@@ -468,5 +468,82 @@ export function runDatabaseAdapterConformance(name: string, factory: () => Promi
       expect((await db.findVersions!({ collection: "posts", documentId: "doc-1" })).totalDocs).toBe(0);
       expect((await db.findVersions!({ collection: "posts", documentId: "doc-2" })).totalDocs).toBe(1);
     });
+
+    test("full-text search matches tokens, prefixes, phrases, OR, negation, isolates drafts, and ranks by relevance", async () => {
+      const rich = await create(
+        { title: "PostgreSQL Full Text Search Guide", body: "PostgreSQL tsvector indexing guide" },
+        { searchText: "PostgreSQL Full Text Search Guide PostgreSQL tsvector indexing guide" },
+      );
+      const intro = await create(
+        { title: "Getting Started", body: "Intro to PostgreSQL databases" },
+        { searchText: "Getting Started Intro to PostgreSQL databases" },
+      );
+      const changed = await create(
+        { title: "Live Public Title", body: "Published content about astronomy" },
+        {
+          draftData: { title: "Secret Draft Rocket", body: "Unpublished rocket launch notes" },
+          searchText: "Live Public Title Published content about astronomy",
+          draftSearchText: "Secret Draft Rocket Unpublished rocket launch notes",
+        },
+      );
+      const draftOnly = await create(
+        {},
+        {
+          status: "draft",
+          draftData: { title: "Draft Only Guide", body: "Pending manuscript" },
+          searchText: null,
+          draftSearchText: "Draft Only Guide Pending manuscript",
+        },
+      );
+      // Direct adapter create without explicit searchText falls back to indexing string fields from data.
+      const fallbackIndexed = await create({ title: "Fallback Aurora", notes: "Northern lights" });
+
+      // Single-term search ranks higher-density document first.
+      const ranked = await db.find({ collection: "posts", source: "published", search: "postgresql" });
+      expect(ranked.docs.map((r) => r.id)).toEqual([rich.id, intro.id]);
+      expect(ranked.totalDocs).toBe(2);
+
+      // Multi-word AND + prefix match.
+      expect((await db.find({ collection: "posts", source: "published", search: "postgresql guide" })).docs.map((r) => r.id)).toEqual([rich.id]);
+      expect((await db.find({ collection: "posts", source: "published", search: "postgr" })).docs.map((r) => r.id)).toEqual([rich.id, intro.id]);
+
+      // Quoted phrase, OR, and negation operators.
+      expect((await db.find({ collection: "posts", source: "published", search: '"full text"' })).docs.map((r) => r.id)).toEqual([rich.id]);
+      expect((await db.find({ collection: "posts", source: "published", search: '"text full"' })).totalDocs).toBe(0);
+      expect((await db.find({ collection: "posts", source: "published", search: "astronomy OR tsvector" })).docs.map((r) => r.id).sort()).toEqual([rich.id, changed.id].sort());
+      expect((await db.find({ collection: "posts", source: "published", search: "postgresql -guide" })).docs.map((r) => r.id)).toEqual([intro.id]);
+
+      // Fallback indexing works when searchText wasn't passed explicitly.
+      expect((await db.find({ collection: "posts", source: "published", search: "aurora" })).docs.map((r) => r.id)).toEqual([fallbackIndexed.id]);
+
+      // Published vs draft isolation: pending draft text never leaks into published search.
+      expect((await db.find({ collection: "posts", source: "published", search: "rocket" })).totalDocs).toBe(0);
+      expect((await db.find({ collection: "posts", source: "published", search: "astronomy" })).docs.map((r) => r.id)).toEqual([changed.id]);
+      expect((await db.find({ collection: "posts", source: "draft", search: "rocket" })).docs.map((r) => r.id)).toEqual([changed.id]);
+      expect((await db.find({ collection: "posts", source: "draft", search: "astronomy" })).totalDocs).toBe(0);
+      expect((await db.find({ collection: "posts", source: "draft", search: "manuscript" })).docs.map((r) => r.id)).toEqual([draftOnly.id]);
+      expect((await db.find({ collection: "posts", source: "published", search: "manuscript" })).totalDocs).toBe(0);
+
+      // Explicit sort overrides relevance ordering.
+      const sorted = await db.find({ collection: "posts", source: "published", search: "postgresql", sort: "title" });
+      expect(sorted.docs.map((r) => r.id)).toEqual([intro.id, rich.id]);
+
+      // Whitespace-only is ignored; punctuation-only safely returns 0 results without throwing.
+      expect((await db.find({ collection: "posts", source: "published", search: "   " })).totalDocs).toBe(4);
+      expect((await db.find({ collection: "posts", source: "published", search: "!!! --- ???" })).totalDocs).toBe(0);
+
+      // Updating searchText refreshes the index immediately; deleting removes it.
+      await db.update("posts", changed.id, {
+        data: { title: "Secret Draft Rocket", body: "Now live rocket notes" },
+        draftData: null,
+        searchText: "Secret Draft Rocket Now live rocket notes",
+        draftSearchText: null,
+      });
+      expect((await db.find({ collection: "posts", source: "published", search: "rocket" })).docs.map((r) => r.id)).toEqual([changed.id]);
+      expect((await db.find({ collection: "posts", source: "published", search: "astronomy" })).totalDocs).toBe(0);
+
+      await db.delete("posts", intro.id);
+      expect((await db.find({ collection: "posts", source: "published", search: "databases" })).totalDocs).toBe(0);
+    });
   });
 }

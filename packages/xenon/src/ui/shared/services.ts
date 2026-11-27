@@ -86,6 +86,15 @@ export interface SearchResult {
   hasNextPage: boolean;
 }
 
+export interface PreviewInfo {
+  /** Resolved preview URL displayed in the toolbar. */
+  url: string;
+  /** Signed entry endpoint URL (`{api}/_preview?token=...`) loaded by the iframe / new tab. */
+  enterUrl: string;
+  /** Target origin for strict `postMessage` delivery (`null` falls back to `window.location.origin`). */
+  targetOrigin: string | null;
+}
+
 export interface AdminServices {
   /** Create (no `id`) or update. `draft: true` = save draft, otherwise publish. */
   /** `slug`: a string sets it by hand, `null` switches back to automatic, omitted leaves it alone. */
@@ -110,6 +119,8 @@ export interface AdminServices {
   getGlobal(input: { slug: string }): Promise<ActionResult<AdminDoc | null>>;
   /** Unpublish a global (requires drafts enabled). */
   unpublishGlobal(input: { slug: string }): Promise<ActionResult<AdminDoc>>;
+  /** Resolve a signed Live Preview URL for a collection document or global. */
+  previewUrl?(input: { kind: "collection" | "global"; slug: string; id?: string; data?: Record<string, unknown>; docSlug?: string | null }): Promise<ActionResult<PreviewInfo | null>>;
 }
 
 export interface AdminUserInfo {

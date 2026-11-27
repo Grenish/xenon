@@ -348,12 +348,17 @@ export type TextFieldKeys<Fs extends FieldsMap> = {
  */
 export type AutosaveOption = boolean | { interval?: number };
 
-export interface CollectionAdminOptions<Fs extends FieldsMap = FieldsMap> {
+export interface CollectionAdminOptions<
+  Fs extends FieldsMap = FieldsMap,
+  Doc = Record<string, unknown>,
+> {
   useAsTitle?: keyof Fs & string;
   defaultColumns?: readonly ((keyof Fs & string) | SystemKey)[];
   group?: string;
   description?: string;
   autosave?: AutosaveOption;
+  /** Returns the preview URL for a document (relative path or trusted-origin URL), or nullish if not previewable. Server-only. */
+  previewUrl?: (doc: Doc) => string | null | undefined;
 }
 
 /**
@@ -378,7 +383,7 @@ export interface CollectionConfig<
   versions?: VersionsOption;
   /** Turns this into an upload (media) collection. */
   upload?: Up;
-  admin?: CollectionAdminOptions<Fs>;
+  admin?: CollectionAdminOptions<Fs, CollectionHookDoc<Fs, Up>>;
   access?: CollectionAccess;
   /** Lifecycle hooks (see `CollectionHooks`). Server-only. */
   hooks?: CollectionHooks<CollectionHookData<Fs, Up>, CollectionHookDoc<Fs, Up>>;
@@ -407,6 +412,8 @@ export interface AnyCollection {
     group?: string;
     description?: string;
     autosave?: AutosaveOption;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    previewUrl?: (doc: any) => string | null | undefined;
   };
   access?: CollectionAccess;
   hooks?: AnyCollectionHooks;
