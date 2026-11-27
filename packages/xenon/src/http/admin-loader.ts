@@ -319,29 +319,21 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
       }
     }
 
-    const q = queryValue(query, "q")?.trim() ?? "";
+    const q = (queryValue(query, "q")?.trim() ?? "").slice(0, 500);
     const status = queryValue(query, "status");
     const page = Math.max(1, Number.parseInt(queryValue(query, "page") ?? "1", 10) || 1);
-    const sort = resolveAdminSort(collection, queryValue(query, "sort"));
+    const rawSort = queryValue(query, "sort");
+    const sort = resolveAdminSort(collection, rawSort);
     const and: Where[] = [];
     if (status === "draft" || status === "published") and.push({ status: { equals: status } });
-    if (q) {
-      const titleKey = client.admin.useAsTitle;
-      and.push({
-        or: [
-          ...(titleKey ? [{ [titleKey]: { contains: q } }] : []),
-          { slug: { contains: q } },
-          ...(client.upload ? [{ filename: { contains: q } }] : []),
-        ],
-      });
-    }
     try {
       const res = await xenon.find({
         ...ctx,
         collection: slug,
         draft: true,
         where: and.length ? { and } : undefined,
-        sort,
+        search: q || undefined,
+        sort: q && !rawSort ? undefined : sort,
         limit: PAGE_SIZE,
         page,
       });
@@ -361,7 +353,7 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
         totalDocs: res.totalDocs,
         page: res.page,
         totalPages: res.totalPages,
-        query: { q, status: status ?? "all", sort },
+        query: { q, status: status ?? "all", sort: q && !rawSort ? "" : sort },
         shell,
       };
     } catch (err) {

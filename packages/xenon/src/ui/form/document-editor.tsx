@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { RiMoreLine, RiDeleteBinLine, RiEditLine, RiEyeOffLine, RiLockLine, RiSave3Line } from "@remixicon/react";
+import { RiMoreLine, RiDeleteBinLine, RiEditLine, RiEyeLine, RiEyeOffLine, RiLockLine, RiSave3Line } from "@remixicon/react";
 import { StatusBadge, timeAgo, formatDate } from "../admin/format";
 import { registerDirtyBlocker } from "../admin/dirty-guard";
 import { useShellBar } from "../admin/shell-bar";
@@ -21,6 +21,7 @@ import { FileDropzone } from "./file-dropzone";
 import { FormRenderer } from "./form-renderer";
 import { RichTextEditor } from "./rich-text-editor";
 import { SlugEditor } from "./slug-editor";
+import { PreviewSplitPane } from "./preview-pane";
 import { Kbd } from "../components/kbd";
 import { richTextToPlainText } from "../../react/rich-text";
 import type { RichTextDocument } from "../../core/types";
@@ -39,6 +40,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const [formError, setFormError] = useState("");
   const [pending, setPending] = useState<"save" | "publish" | "unpublish" | "remove" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [pendingLeave, setPendingLeave] = useState<{ proceed: () => void } | null>(null);
   /** A save was refused because someone saved a newer version: theirs, and which save we attempted. */
   const [conflict, setConflict] = useState<{ latest: AdminDoc; draft: boolean } | null>(null);
@@ -243,6 +245,22 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const propertyFields = canvasMode ? collection.fields.filter((field) => field !== titleField && field !== bodyField && !canvasFields.includes(field)) : collection.fields.filter((field) => field.admin.position === "sidebar");
 
   const docLabel = current || dirty ? title : `New ${collection.labels.singular.toLowerCase()}`;
+  const liveDoc = useMemo(
+    () => ({
+      id: current?.id ?? "",
+      slug: slugEdit !== undefined ? slugEdit : (current?.slug ?? null),
+      status: current?.status ?? "draft",
+      createdAt: current?.createdAt ?? "",
+      updatedAt: current?.updatedAt ?? "",
+      ...data,
+    }),
+    [current, slugEdit, data],
+  );
+  const previewToggle = collection.admin.hasPreview ? (
+    <Button type="button" variant={previewOpen ? "secondary" : "outline"} aria-pressed={previewOpen} onClick={() => setPreviewOpen((open) => !open)}>
+      <RiEyeLine data-icon="inline-start" />Preview
+    </Button>
+  ) : null;
   useShellBar({
     crumbs: [{ label: collection.labels.plural, href: adminRoutes.list(basePath, collection.slug) }, { label: docLabel }],
     status: <>
@@ -251,8 +269,10 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
       <p className="xe:hidden xe:text-[13px] xe:text-muted-foreground xe:md:block" aria-live="polite" suppressHydrationWarning>{saveState}</p>
     </>,
     actions: readOnly ? <div className="xe:flex xe:items-center xe:gap-1.5">
+      {previewToggle}
       <Button type="button" onClick={presence.takeover}><RiEditLine data-icon="inline-start" />{presence.mode === "taken" && !presence.holder ? "Continue editing" : "Take over"}</Button>
     </div> : <div className="xe:flex xe:items-center xe:gap-1.5">
+      {previewToggle}
       {isDraftsEnabled ? <Button type="button" variant="outline" className="xe:hidden xe:sm:inline-flex" disabled={!!pending} onClick={() => void save(true)}>{pending === "save" ? <Spinner /> : null}Save draft</Button> : null}
       <Button type="button" disabled={!!pending} onClick={() => void save(false)}>{pending === "publish" ? <Spinner /> : null}{isDraftsEnabled ? "Publish" : "Save"}</Button>
       {current ? <DropdownMenu><DropdownMenuTrigger ref={actionsButton} render={<Button type="button" variant="ghost" size="icon" aria-label="More document actions" disabled={!!pending} />}><RiMoreLine /></DropdownMenuTrigger>
@@ -269,7 +289,8 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const visibleProperties = propertyFields.some((field) => !field.admin.hidden);
 
   // Full-bleed on the sheet: the canvas on the left, the inspector as a ruled column on the right.
-  return <div data-xe-full className="xe:flex xe:flex-col xe:lg:grid xe:lg:min-h-[calc(100dvh-3.5rem-2px)] xe:lg:grid-cols-[minmax(0,1fr)_21rem]">
+  return <PreviewSplitPane open={previewOpen} kind="collection" slug={collection.slug} id={current?.id} liveDoc={liveDoc} formData={data} docSlug={slugEdit} savedVersion={current?.updatedAt} onClose={() => setPreviewOpen(false)}>
+  <div data-xe-full className="xe:flex xe:flex-col xe:lg:grid xe:lg:min-h-[calc(100dvh-3.5rem-2px)] xe:lg:grid-cols-[minmax(0,1fr)_21rem]">
     <div className="xe:flex xe:min-w-0 xe:flex-col xe:gap-6 xe:px-4 xe:pt-6 xe:pb-10 xe:sm:px-8 xe:lg:pt-10">
       {readOnly ? <LockBanner presence={presence} singular={collection.labels.singular.toLowerCase()} dirty={dirty} /> : null}
       {formError ? <Alert ref={alertRef} tabIndex={-1} variant="destructive" className="xe:mx-auto xe:w-full xe:max-w-[46rem]"><AlertTitle>We couldn’t save your changes</AlertTitle><AlertDescription>{formError}</AlertDescription></Alert> : null}
@@ -358,7 +379,8 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!pending) setConfirmDelete(open); }}><AlertDialogContent finalFocus={actionsButton}><AlertDialogHeader><AlertDialogTitle>Delete this {collection.labels.singular.toLowerCase()}?</AlertDialogTitle><AlertDialogDescription>“{title}” will be permanently deleted. This can’t be undone.</AlertDialogDescription></AlertDialogHeader>
       <AlertDialogFooter><AlertDialogCancel disabled={!!pending}>Keep it</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={!!pending} onClick={() => void remove()}>{pending === "remove" ? <Spinner /> : <RiDeleteBinLine data-icon="inline-start" />}Delete permanently</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent></AlertDialog>
-  </div>;
+  </div>
+  </PreviewSplitPane>;
 }
 
 /** Large borderless title that grows with its content; Enter moves into the body. */

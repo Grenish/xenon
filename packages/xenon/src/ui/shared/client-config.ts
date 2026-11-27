@@ -63,6 +63,7 @@ export interface ClientCollection {
     defaultColumns: string[];
     group: string | null;
     description: string | null;
+    hasPreview?: boolean;
   };
 }
 
@@ -75,6 +76,7 @@ export interface ClientGlobal {
   admin: {
     group: string | null;
     description: string | null;
+    hasPreview?: boolean;
   };
 }
 
@@ -205,6 +207,7 @@ export function toClientCollection(collection: AnyCollection): ClientCollection 
       defaultColumns: [...(collection.admin?.defaultColumns ?? [])],
       group: collection.admin?.group ?? null,
       description: collection.admin?.description ?? null,
+      hasPreview: typeof collection.admin?.previewUrl === "function",
     },
   };
 }
@@ -218,6 +221,7 @@ export function toClientGlobal(global: AnyGlobal): ClientGlobal {
     admin: {
       group: global.admin?.group ?? null,
       description: global.admin?.description ?? null,
+      hasPreview: typeof global.admin?.previewUrl === "function",
     },
   };
 }

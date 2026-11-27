@@ -53,7 +53,9 @@ export interface FindArgs {
    */
   source: "published" | "draft";
   where?: Where;
-  /** Field or system key; `-` prefix = descending. Default `-createdAt`. Ties broken by `id`. */
+  /** Full-text search query (Postgres `tsvector` GIN index; portable token matcher in memory). */
+  search?: string;
+  /** Field or system key; `-` prefix = descending. Default `-createdAt` (or relevance rank when `search` is set). Ties broken by `id`. */
   sort?: string;
   /** Default 10. `0` = no limit. */
   limit?: number;
@@ -77,6 +79,10 @@ export interface CreateRecordInput {
   status: DocumentStatus;
   data: Record<string, unknown>;
   draftData: Record<string, unknown> | null;
+  /** Precomputed searchable plain text for live `data` (indexed into `search_vector`). */
+  searchText?: string | null;
+  /** Precomputed searchable plain text for pending `draftData` (`null` when no draft exists). */
+  draftSearchText?: string | null;
 }
 
 export type UpdateRecordInput = Partial<Omit<CreateRecordInput, "collection">>;

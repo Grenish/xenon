@@ -49,6 +49,21 @@ export type {
   DispatchAdminActionOptions,
 } from "./admin-action";
 export { loadDashboard } from "./dashboard-data";
+export {
+  buildPreviewCookie,
+  clearPreviewCookie,
+  createPreviewSession,
+  isPreviewRequest,
+  PREVIEW_COOKIE_NAME,
+  PREVIEW_SESSION_TTL_MS,
+  PREVIEW_TOKEN_TTL_MS,
+  readPreviewCookie,
+  resolvePreviewUrl,
+  signPreviewToken,
+  verifyPreviewRequest,
+  verifyPreviewToken,
+} from "../server/preview";
+export type { CreatePreviewSessionArgs, PreviewSessionInfo, PreviewTokenPayload } from "../server/preview";
 export type { ClientCollection, ClientField, ClientGlobal } from "../ui/shared/client-config";
 export type {
   AccountSession,
@@ -63,6 +78,7 @@ export type {
   DashboardDoc,
   DashboardMedia,
   DocSummary,
+  PreviewInfo,
   SearchInput,
   SearchResult,
   SettingsTab,

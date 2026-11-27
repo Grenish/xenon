@@ -4,6 +4,15 @@ import { getGlobal, GLOBALS_COLLECTION } from "../core/global";
 import type { XenonConfig } from "../core/types";
 import { populatesRestrictedCollection } from "../server/populate";
 import { defaultPresenceStore, verifyPresenceToken } from "../server/presence";
+import {
+  buildPreviewCookie,
+  clearPreviewCookie,
+  createPreviewSession,
+  PREVIEW_SESSION_TTL_MS,
+  resolvePreviewUrl,
+  signPreviewToken,
+  verifyPreviewToken,
+} from "../server/preview";
 import type { UploadFile, XenonInstance } from "../server/types";
 import { keySegments } from "../storage/keys";
 import {
@@ -325,6 +334,123 @@ export function extractRouteSegments(pathname: string, basePath: string): string
   return decoded;
 }
 
+async function handlePreviewHttp(
+  request: Request,
+  segments: readonly string[],
+  config: XenonConfig,
+  xenon: XenonInstance,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const secure = url.protocol === "https:";
+
+  if (segments.length === 1) {
+    if (request.method === "POST") {
+      const user = await xenon.getUser(request.headers);
+      if (!user) throw new XenonError("UNAUTHORIZED", "Authentication required.");
+      if (!/^Bearer\s+.+$/i.test(request.headers.get("authorization") ?? "")) {
+        requireTrustedOrigin(request, config);
+      }
+      const body = await readJsonObject(request, "Preview requests require application/json.");
+      let kind: "collection" | "global";
+      let slug: string;
+      let id: string | undefined;
+      let docSlug: string | null | undefined;
+      if (typeof body.global === "string" && body.global.trim()) {
+        kind = "global";
+        slug = body.global.trim();
+      } else if (typeof body.collection === "string" && body.collection.trim()) {
+        kind = "collection";
+        slug = body.collection.trim();
+        if (body.id !== undefined) {
+          if (typeof body.id !== "string" || !body.id.trim()) {
+            throw new XenonError("BAD_REQUEST", "id must be a non-empty string.");
+          }
+          id = body.id.trim();
+        }
+        if (body.slug !== undefined) {
+          if (body.slug !== null && typeof body.slug !== "string") {
+            throw new XenonError("BAD_REQUEST", "slug must be a string or null.");
+          }
+          docSlug = body.slug;
+        }
+      } else {
+        throw new XenonError("BAD_REQUEST", "Preview requests require a collection or global slug.");
+      }
+      const data = body.data === undefined ? undefined : (objectData(body.data) as Record<string, unknown>);
+      const session = await createPreviewSession(config, xenon, {
+        kind,
+        slug,
+        id,
+        data,
+        docSlug,
+        user,
+        requestUrl: request.url,
+      });
+      return Response.json(
+        session ?? { token: null, url: null, enterUrl: null, targetOrigin: null },
+        { status: 200, headers: { "cache-control": PRIVATE_NO_STORE, vary: "Authorization, Cookie" } },
+      );
+    }
+
+    if (request.method === "GET") {
+      const token = url.searchParams.get("token");
+      const secret = resolveSecret(config);
+      const payload = await verifyPreviewToken(secret, token);
+      if (!payload) {
+        throw new XenonError("UNAUTHORIZED", "Invalid or expired preview token.");
+      }
+      const { url: destination } = resolvePreviewUrl(payload.url, config, request.url);
+      const sessionToken = await signPreviewToken(
+        secret,
+        {
+          kind: payload.kind,
+          slug: payload.slug,
+          ...(payload.id !== undefined ? { id: payload.id } : {}),
+          url: destination,
+          userId: payload.userId,
+        },
+        PREVIEW_SESSION_TTL_MS,
+      );
+      const headers = new Headers({
+        location: destination,
+        "cache-control": PRIVATE_NO_STORE,
+        "set-cookie": buildPreviewCookie(sessionToken, { secure }),
+      });
+      return new Response(null, { status: 307, headers });
+    }
+
+    throw new XenonError("NOT_FOUND", "Route not found.");
+  }
+
+  if (segments.length === 2 && segments[1] === "exit") {
+    if (request.method === "GET") {
+      const target = url.searchParams.get("redirect") ?? "/";
+      const { url: location } = resolvePreviewUrl(target, config, request.url);
+      const headers = new Headers({
+        location,
+        "cache-control": PRIVATE_NO_STORE,
+        "set-cookie": clearPreviewCookie({ secure }),
+      });
+      return new Response(null, { status: 307, headers });
+    }
+    if (request.method === "POST") {
+      if (request.headers.get("origin")) requireTrustedOrigin(request, config);
+      return Response.json(
+        { ok: true },
+        {
+          status: 200,
+          headers: {
+            "cache-control": PRIVATE_NO_STORE,
+            "set-cookie": clearPreviewCookie({ secure }),
+          },
+        },
+      );
+    }
+  }
+
+  throw new XenonError("NOT_FOUND", "Route not found.");
+}
+
 /** Internal segment-level dispatcher shared by `createHandler` and `xenon-cms/next`'s `createApiHandler`. */
 export async function handleApiSegments(
   request: Request,
@@ -340,6 +466,10 @@ export async function handleApiSegments(
     if (slug === "_presence" && segments.length === 1) {
       if (request.method !== "POST" || config.presence === false) throw new XenonError("NOT_FOUND", "Route not found.");
       return await handlePresence(request, config);
+    }
+    if (slug === "_preview") {
+      noStoreOnError = true;
+      return await handlePreviewHttp(request, segments, config, xenon);
     }
     if (slug === "_admin" && segments.length === 2) {
       noStoreOnError = true;

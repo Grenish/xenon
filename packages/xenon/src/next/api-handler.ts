@@ -1,6 +1,7 @@
 import type { XenonConfig } from "../core/types";
 import { extractRouteSegments, handleApiSegments } from "../http/handler";
 import type { XenonInstance } from "../server/types";
+import { disableNextDraftMode, enableNextDraftMode } from "./preview";
 import { getXenon } from "./xenon";
 
 export interface RouteContext {
@@ -29,7 +30,15 @@ export function createApiHandler<Cfg extends XenonConfig>(
     if (segments === null) {
       return Response.json({ errors: [{ message: "Route not found." }] }, { status: 404 });
     }
-    return handleApiSegments(request, segments, config, xenon, { cacheControl: options?.cacheControl });
+    const response = await handleApiSegments(request, segments, config, xenon, { cacheControl: options?.cacheControl });
+    if (segments[0] === "_preview") {
+      if (segments.length === 1 && request.method === "GET" && response.status >= 300 && response.status < 400) {
+        await enableNextDraftMode();
+      } else if (segments.length === 2 && segments[1] === "exit" && response.status < 400) {
+        await disableNextDraftMode();
+      }
+    }
+    return response;
   }
 
   return { GET: handle, POST: handle, PATCH: handle, DELETE: handle };
