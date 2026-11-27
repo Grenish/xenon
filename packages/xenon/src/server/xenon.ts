@@ -1,7 +1,7 @@
 import type { BetterAuthPlugin } from "better-auth";
 import { matchesOperators } from "../adapters/match";
 import type { DatabaseAdapter, DocumentRecord, StorageAdapter, Where, WhereOperators } from "../adapters/types";
-import { SlugConflictError, UpdateConflictError } from "../adapters/types";
+import { SlugConflictError, UniqueConflictError, UpdateConflictError } from "../adapters/types";
 import { createXenonAuth, resolveSecret, resolveUser } from "../auth";
 import { mergeUpdate, pruneToFields, withReadDefaults } from "../core/defaults";
 import { slugify } from "../core/slug";
@@ -11,6 +11,14 @@ import { XenonError } from "../core/errors";
 import type { AnyCollection, Field, XenonConfig, XenonUser } from "../core/types";
 import { UPLOAD_KEYS } from "../core/types";
 import { type ValidationMode, validateCollectionData } from "../core/validation";
+import {
+  applySelect,
+  extractFieldIndexes,
+  populateDocs,
+  resolveFieldAtPath,
+  validatePopulate,
+  validateSelect,
+} from "./populate";
 import {
   PRESIGN_DEFAULT_EXPIRES_IN,
   type PreparedUpload,
@@ -113,9 +121,11 @@ export function createXenon<Cfg extends XenonConfig>(
     return config.storage;
   }
 
+  const fieldIndexes = extractFieldIndexes(config.collections);
+
   async function init(): Promise<void> {
     initPromise ??= (async () => {
-      await requireDb().init();
+      await requireDb().init(fieldIndexes.length ? { indexes: fieldIndexes } : undefined);
     })().catch((err) => {
       initPromise = null;
       throw err;
@@ -241,7 +251,7 @@ export function createXenon<Cfg extends XenonConfig>(
         out[key] = (value as Where[]).map((part) => withFieldDefaults(collection, part) ?? {});
         continue;
       }
-      const field = Object.hasOwn(fields, key) ? fields[key] : undefined;
+      const field = resolveFieldAtPath(fields, key);
       if (field?.defaultValue === undefined || field.defaultValue === null) {
         out[key] = value;
         continue;
@@ -288,6 +298,10 @@ export function createXenon<Cfg extends XenonConfig>(
 
   function conflict(err: unknown): never {
     if (err instanceof SlugConflictError) throw new XenonError("CONFLICT", err.message);
+    if (err instanceof UniqueConflictError) {
+      const message = `The value for "${err.path.join(".")}" is already used by another document.`;
+      throw new XenonError("CONFLICT", message, [{ path: [...err.path], message }]);
+    }
     if (err instanceof UpdateConflictError) throw staleError();
     throw err;
   }
@@ -296,6 +310,41 @@ export function createXenon<Cfg extends XenonConfig>(
     const record = await requireDb().findById(collection.slug, id);
     if (!record) throw new XenonError("NOT_FOUND", `Document "${id}" not found in "${collection.slug}".`);
     return record;
+  }
+
+  async function prepareReadModifiers(
+    collection: AnyCollection,
+    o: CallContext & { select?: unknown; populate?: unknown },
+    draft: boolean,
+  ) {
+    const select = o.select !== undefined ? validateSelect(collection, o.select) : undefined;
+    const pop = o.populate !== undefined ? validatePopulate(collection, o.populate, (s) => collections.get(s)) : undefined;
+    if (pop) {
+      for (const target of pop.targets) {
+        await checkAccess(target, "read", o, draft);
+      }
+    }
+    return { select, populate: pop?.spec };
+  }
+
+  async function finalizeDocs(
+    collection: AnyCollection,
+    docs: AnyDoc[],
+    draft: boolean,
+    modifiers: { select?: ReturnType<typeof validateSelect>; populate?: ReturnType<typeof validatePopulate>["spec"] },
+  ): Promise<AnyDoc[]> {
+    if (modifiers.populate && docs.length) {
+      await populateDocs({
+        collection,
+        docs,
+        spec: modifiers.populate,
+        draft,
+        db: requireDb(),
+        getCollection: (s) => collections.get(s),
+        toDoc,
+      });
+    }
+    return modifiers.select ? docs.map((d) => applySelect(d, modifiers.select!, modifiers.populate, true)) : docs;
   }
 
   const api: XenonInstance<XenonConfig> = {
@@ -307,6 +356,7 @@ export function createXenon<Cfg extends XenonConfig>(
       const collection = requireCollection(o.collection);
       const draft = o.draft === true;
       await checkAccess(collection, "read", o, draft);
+      const modifiers = await prepareReadModifiers(collection, o, draft);
       const result = await requireDb().find({
         collection: collection.slug,
         source: draft ? "draft" : "published",
@@ -315,7 +365,13 @@ export function createXenon<Cfg extends XenonConfig>(
         limit: o.limit,
         page: o.page,
       });
-      return { ...result, docs: result.docs.map((r) => toDoc(collection, r, draft)) } as never;
+      const docs = await finalizeDocs(
+        collection,
+        result.docs.map((r) => toDoc(collection, r, draft)),
+        draft,
+        modifiers,
+      );
+      return { ...result, docs } as never;
     },
 
     async findById(o) {
@@ -323,9 +379,11 @@ export function createXenon<Cfg extends XenonConfig>(
       const collection = requireCollection(o.collection);
       const draft = o.draft === true;
       await checkAccess(collection, "read", o, draft);
+      const modifiers = await prepareReadModifiers(collection, o, draft);
       const record = await requireDb().findById(collection.slug, o.id);
       if (!record || (!draft && record.status !== "published")) return null;
-      return toDoc(collection, record, draft) as never;
+      const [doc] = await finalizeDocs(collection, [toDoc(collection, record, draft)], draft, modifiers);
+      return (doc ?? null) as never;
     },
 
     async findBySlug(o) {
@@ -334,6 +392,8 @@ export function createXenon<Cfg extends XenonConfig>(
         where: { slug: { equals: o.slug } },
         limit: 1,
         draft: o.draft,
+        select: o.select as never,
+        populate: o.populate as never,
         user: o.user,
         overrideAccess: o.overrideAccess,
       });

@@ -111,6 +111,36 @@ export class SlugConflictError extends Error {
   }
 }
 
+/** Thrown by adapters when a field marked `unique: true` collides with another document. */
+export class UniqueConflictError extends Error {
+  override name = "UniqueConflictError";
+  public readonly path: readonly string[];
+  constructor(
+    public readonly collection: string,
+    path: string | readonly string[],
+  ) {
+    const segments = typeof path === "string" ? path.split(".") : [...path];
+    super(`[xenon] Field "${segments.join(".")}" must be unique in collection "${collection}".`);
+    this.path = segments;
+  }
+}
+
+export type FieldIndexType = "text" | "number" | "boolean";
+
+/** Opt-in expression index or uniqueness constraint on a JSONB field path. */
+export interface FieldIndexSpec {
+  collection: string;
+  /** Path segments from document root, e.g. `["email"]` or `["seo", "canonicalId"]`. */
+  path: readonly string[];
+  type: FieldIndexType;
+  /** Enforce uniqueness across documents in the collection (both working copies and live published rows). */
+  unique?: boolean;
+}
+
+export interface DatabaseInitOptions {
+  indexes?: readonly FieldIndexSpec[];
+}
+
 export interface SummarizeArgs {
   collection: string;
   /** Start of the activity window for `edited` / `created`. */
@@ -150,16 +180,16 @@ export interface CollectionSummary {
 
 export interface DatabaseAdapter {
   readonly name: string;
-  /** Idempotent: create tables/indexes if missing. Called once before first use. */
-  init(): Promise<void>;
+  /** Idempotent: create tables/indexes if missing. Called once before first use (and safe to call again with additional indexes). */
+  init(options?: DatabaseInitOptions): Promise<void>;
   find(args: FindArgs): Promise<PaginatedResult<DocumentRecord>>;
   findById(collection: string, id: string): Promise<DocumentRecord | null>;
-  /** Generates `id` and timestamps. Throws `SlugConflictError` on duplicate slug. */
+  /** Generates `id` and timestamps. Throws `SlugConflictError` on duplicate slug and `UniqueConflictError` on duplicate unique fields. */
   create(input: CreateRecordInput): Promise<DocumentRecord>;
   /**
    * Bumps `updatedAt` strictly (at least 1 ms past the previous value), so `updatedAt` doubles as the
-   * row's version. Returns `null` when not found. Throws `SlugConflictError` on duplicate slug and
-   * `UpdateConflictError` when `options.ifUpdatedAt` no longer matches.
+   * row's version. Returns `null` when not found. Throws `SlugConflictError` on duplicate slug,
+   * `UniqueConflictError` on duplicate unique fields, and `UpdateConflictError` when `options.ifUpdatedAt` no longer matches.
    */
   update(collection: string, id: string, input: UpdateRecordInput, options?: UpdateRecordOptions): Promise<DocumentRecord | null>;
   /** Returns `false` when not found. */

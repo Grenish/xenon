@@ -116,7 +116,18 @@ export interface BaseFieldOptions<V> {
   validate?: FieldValidateFn<V>;
 }
 
-export interface TextFieldOptions extends BaseFieldOptions<string> {
+/**
+ * Indexing options for single-value scalar fields (including inside `group` fields,
+ * excluding `hasMany: true` and fields inside `array` / `blocks`).
+ */
+export interface IndexableFieldOptions {
+  /** Create a Postgres B-tree expression index for faster range/sort/equality queries. */
+  index?: boolean;
+  /** Enforce uniqueness across documents in the collection (backed by Postgres partial unique indexes). Implies `index`. */
+  unique?: boolean;
+}
+
+export interface TextFieldOptions extends BaseFieldOptions<string>, IndexableFieldOptions {
   minLength?: number;
   maxLength?: number;
   pattern?: RegExp;
@@ -128,29 +139,29 @@ export interface TextareaFieldOptions extends BaseFieldOptions<string> {
   rows?: number;
 }
 
-export interface NumberFieldOptions extends BaseFieldOptions<number> {
+export interface NumberFieldOptions extends BaseFieldOptions<number>, IndexableFieldOptions {
   min?: number;
   max?: number;
   integer?: boolean;
 }
 
-export interface BooleanFieldOptions extends BaseFieldOptions<boolean> {
+export interface BooleanFieldOptions extends BaseFieldOptions<boolean>, IndexableFieldOptions {
   admin?: FieldAdminOptions & {
     /** Control shown in the admin. Default `"switch"`. */
     display?: "switch" | "checkbox";
   };
 }
 
-export interface DateFieldOptions extends BaseFieldOptions<string> {
+export interface DateFieldOptions extends BaseFieldOptions<string>, IndexableFieldOptions {
   /** Earliest allowed value (ISO-8601, same format as the field). */
   min?: string;
   /** Latest allowed value (ISO-8601, same format as the field). */
   max?: string;
 }
 
-export interface EmailFieldOptions extends BaseFieldOptions<string> {}
+export interface EmailFieldOptions extends BaseFieldOptions<string>, IndexableFieldOptions {}
 
-export interface UrlFieldOptions extends BaseFieldOptions<string> {
+export interface UrlFieldOptions extends BaseFieldOptions<string>, IndexableFieldOptions {
   /** Allowed URL schemes, without the colon. Default `["http", "https"]`. */
   protocols?: readonly string[];
 }
@@ -213,14 +224,14 @@ export interface BlocksFieldOptions<Bs extends readonly AnyBlock[] = readonly An
 
 export type SelectOption = string | { readonly label: string; readonly value: string };
 
-export interface SelectFieldOptions extends BaseFieldOptions<string | readonly string[]> {
+export interface SelectFieldOptions extends BaseFieldOptions<string | readonly string[]>, IndexableFieldOptions {
   options: readonly SelectOption[];
   hasMany?: boolean;
 }
 
 export interface RichTextFieldOptions extends BaseFieldOptions<RichTextDocument> {}
 
-export interface RelationshipFieldOptions extends BaseFieldOptions<string | readonly string[]> {
+export interface RelationshipFieldOptions extends BaseFieldOptions<string | readonly string[]>, IndexableFieldOptions {
   /** Slug of the target collection. */
   relationTo: string;
   hasMany?: boolean;
@@ -572,3 +583,196 @@ export type CollectionBySlug<Cfg, S extends CollectionSlug<Cfg>> = Extract<
 export type InferConfigDocuments<Cfg> = {
   [S in CollectionSlug<Cfg>]: InferCollectionType<CollectionBySlug<Cfg, S>>;
 };
+
+/* -------------------------------------------------------------------------- */
+/*                       Query inference (select/populate)                    */
+/* -------------------------------------------------------------------------- */
+
+/** Inclusion projection over a map of fields (`group` fields accept `true` or a nested projection). */
+export type SelectFieldsInput<Fs> = {
+  readonly [K in keyof Fs]?: Fs[K] extends { type: "group"; fields: infer GFs }
+    ? true | SelectFieldsInput<GFs>
+    : true;
+};
+
+/** Inclusion projection for a collection (`id` is always preserved in the returned document). */
+export type SelectInput<C extends AnyCollection> = Prettify<
+  { readonly [K in SystemKey]?: true } &
+    (IsUpload<C> extends true ? { readonly [K in UploadKey]?: true } : {}) &
+    SelectFieldsInput<FieldsOf<C>>
+>;
+
+/** Loose runtime shape for `select` (when schema generics are erased). */
+export type RuntimeSelect = { readonly [key: string]: true | RuntimeSelect | undefined };
+
+type TargetCollection<Cfg, Target extends string> = Target extends CollectionSlug<Cfg>
+  ? CollectionBySlug<Cfg, Target> extends infer C extends AnyCollection
+    ? C
+    : never
+  : never;
+
+type PrevDepth = [never, 0, 1, 2, 3, 4];
+
+type PopulateableKeys<Fs> = {
+  [K in keyof Fs]: IsPopulateableField<Fs[K]> extends true ? K : never;
+}[keyof Fs];
+
+type IsPopulateableField<F> =
+  F extends { type: "relation" | "media" }
+    ? true
+    : F extends { type: "group" | "array"; fields: infer SubFs }
+      ? [PopulateableKeys<SubFs>] extends [never]
+        ? false
+        : true
+      : F extends { type: "blocks"; blocks: readonly (infer B)[] }
+        ? [
+            B extends { fields: infer BFs }
+              ? [PopulateableKeys<BFs>] extends [never]
+                ? never
+                : true
+              : never,
+          ] extends [never]
+          ? false
+          : true
+        : false;
+
+type PopulateBranch<Cfg, Target extends string, Depth extends number> =
+  TargetCollection<Cfg, Target> extends infer C extends AnyCollection
+    ? Depth extends 0
+      ? true | { readonly select?: SelectInput<C> }
+      :
+          | true
+          | {
+              readonly select?: SelectInput<C>;
+              readonly populate?: PopulateFieldsInput<Cfg, FieldsOf<C>, PrevDepth[Depth]>;
+            }
+    : never;
+
+type PopulateFieldEntry<Cfg, F, Depth extends number> =
+  F extends { type: "relation" | "media"; relationTo: infer Target extends string }
+    ? PopulateBranch<Cfg, Target, Depth>
+    : F extends { type: "group" | "array"; fields: infer SubFs }
+      ? PopulateFieldsInput<Cfg, SubFs, Depth>
+      : F extends { type: "blocks"; blocks: readonly (infer B)[] }
+        ? {
+            readonly [Item in B as Item extends { slug: infer BS extends string; fields: infer BFs }
+              ? [PopulateableKeys<BFs>] extends [never]
+                ? never
+                : BS
+              : never]?: Item extends { fields: infer BFs } ? PopulateFieldsInput<Cfg, BFs, Depth> : never;
+          }
+        : never;
+
+/** Explicit typed populate tree over a map of fields (relations, media, and containers holding them). */
+export type PopulateFieldsInput<Cfg, Fs, Depth extends number = 4> = {
+  readonly [K in PopulateableKeys<Fs>]?: PopulateFieldEntry<Cfg, Fs[K], Depth>;
+};
+
+/** Explicit typed populate tree for collection `S` in config `Cfg`. */
+export type PopulateInput<Cfg, S extends CollectionSlug<Cfg>, Depth extends number = 4> =
+  CollectionBySlug<Cfg, S> extends infer C extends AnyCollection ? PopulateFieldsInput<Cfg, FieldsOf<C>, Depth> : never;
+
+/** Loose runtime shape for `populate` (when schema generics are erased). */
+export type RuntimePopulate = { readonly [key: string]: true | RuntimePopulate | { readonly select?: RuntimeSelect; readonly populate?: RuntimePopulate } | undefined };
+
+type ResolvePopulateBranch<Cfg, Target extends string, Entry> =
+  TargetCollection<Cfg, Target> extends infer C extends AnyCollection
+    ? Entry extends true
+      ? InferCollectionType<C>
+      : Entry extends { readonly select?: infer SubSel; readonly populate?: infer SubPop }
+        ? InferQueryCollectionType<Cfg, C, SubSel, SubPop>
+        : InferCollectionType<C>
+    : never;
+
+type PopulatedFieldValue<Cfg, F, Entry> =
+  F extends { type: "relation" | "media"; relationTo: infer Target extends string }
+    ? F extends { hasMany: true }
+      ? ResolvePopulateBranch<Cfg, Target, Entry>[]
+      : ResolvePopulateBranch<Cfg, Target, Entry> | null
+    : F extends { type: "group"; fields: infer SubFs }
+      ? PopulatedFieldsData<Cfg, SubFs, Entry>
+      : F extends { type: "array"; fields: infer SubFs }
+        ? Prettify<{ id: string } & PopulatedFieldsData<Cfg, SubFs, Entry>>[]
+        : F extends { type: "blocks"; blocks: readonly (infer B)[] }
+          ? (B extends { slug: infer BS extends string; fields: infer BFs }
+              ? BS extends keyof Entry
+                ? [Exclude<Entry[BS], undefined>] extends [never]
+                  ? BlockValue<B, "read">
+                  : Prettify<{ blockType: BS; id: string } & PopulatedFieldsData<Cfg, BFs, Exclude<Entry[BS], undefined>>>
+                : BlockValue<B, "read">
+              : never)[]
+          : InferFieldValue<F>;
+
+type FieldValueWithPopulate<Cfg, Fs, K extends keyof Fs, Pop> = K extends keyof Pop
+  ? [Exclude<Pop[K], undefined>] extends [never]
+    ? InferFieldValue<Fs[K]>
+    : PopulatedFieldValue<Cfg, Fs[K], Exclude<Pop[K], undefined>>
+  : InferFieldValue<Fs[K]>;
+
+type PopulatedFieldsData<Cfg, Fs, Pop> = [Pop] extends [undefined]
+  ? InferFieldsData<Fs>
+  : Prettify<
+      { -readonly [K in ReadPresentKeys<Fs>]: FieldValueWithPopulate<Cfg, Fs, K, Pop> } & {
+        -readonly [K in Exclude<keyof Fs, ReadPresentKeys<Fs>>]?: FieldValueWithPopulate<Cfg, Fs, K, Pop> | null;
+      }
+    >;
+
+type HasOwnSpec<Obj, K> = K extends keyof Obj
+  ? [Exclude<Obj[K], undefined>] extends [never]
+    ? false
+    : true
+  : false;
+
+type KeptKeys<Doc, Sel, Pop, IsRoot extends boolean> = Extract<
+  keyof Doc,
+  | (IsRoot extends true ? "id" : never)
+  | { [K in keyof Doc]: HasOwnSpec<Sel, K> extends true ? K : HasOwnSpec<Pop, K> extends true ? K : never }[keyof Doc]
+>;
+
+type RequiredKeptKeys<Doc, Sel, Pop, IsRoot extends boolean> = {
+  [K in KeptKeys<Doc, Sel, Pop, IsRoot>]: {} extends Pick<Doc, K> ? never : K;
+}[KeptKeys<Doc, Sel, Pop, IsRoot>];
+
+type OptionalKeptKeys<Doc, Sel, Pop, IsRoot extends boolean> = Exclude<
+  KeptKeys<Doc, Sel, Pop, IsRoot>,
+  RequiredKeptKeys<Doc, Sel, Pop, IsRoot>
+>;
+
+type ProjectedPropValue<Doc, K extends keyof Doc, Sel, Pop> = K extends keyof Sel
+  ? Exclude<Sel[K], undefined> extends infer S
+    ? [S] extends [true]
+      ? Doc[K]
+      : S extends Record<string, unknown>
+        ? NonNullable<Doc[K]> extends Record<string, unknown>
+          ? ProjectObject<
+              NonNullable<Doc[K]>,
+              S,
+              K extends keyof Pop ? Exclude<Pop[K], undefined> : undefined,
+              false
+            >
+          : Doc[K]
+        : Doc[K]
+    : Doc[K]
+  : Doc[K];
+
+type ProjectObject<Doc, Sel, Pop, IsRoot extends boolean> = Prettify<
+  { -readonly [K in RequiredKeptKeys<Doc, Sel, Pop, IsRoot>]: ProjectedPropValue<Doc, K, Sel, Pop> } & {
+    -readonly [K in OptionalKeptKeys<Doc, Sel, Pop, IsRoot>]?: ProjectedPropValue<Doc, K, Sel, Pop>;
+  }
+>;
+
+/** Exact inferred document type for a read with optional `select` and `populate`. */
+export type InferQueryCollectionType<Cfg, C extends AnyCollection, Sel = undefined, Pop = undefined> = [
+  Sel,
+] extends [undefined]
+  ? [Pop] extends [undefined]
+    ? InferCollectionType<C>
+    : Prettify<SystemFields & PopulatedFieldsData<Cfg, FieldsOf<C>, Pop> & (IsUpload<C> extends true ? UploadData : {})>
+  : ProjectObject<
+      Prettify<
+        SystemFields & PopulatedFieldsData<Cfg, FieldsOf<C>, Pop> & (IsUpload<C> extends true ? UploadData : {})
+      >,
+      Exclude<Sel, undefined>,
+      Pop,
+      true
+    >;

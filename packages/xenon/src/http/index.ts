@@ -4,8 +4,8 @@
  */
 export { createHandler, extractRouteSegments, handleApiSegments, requireTrustedOrigin } from "./handler";
 export type { CreateHandlerOptions, XenonHttpHandler } from "./handler";
-export { parseDraft, parseQuery, parseWhere } from "./query";
-export type { ParsedQuery } from "./query";
+export { parseDraft, parsePopulate, parseQuery, parseReadQuery, parseSelect, parseWhere } from "./query";
+export type { ParsedQuery, ParsedReadQuery } from "./query";
 export {
   computeEtag,
   DEFAULT_PUBLIC_CACHE_CONTROL,

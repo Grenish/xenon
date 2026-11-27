@@ -9,7 +9,12 @@ import type {
   InferCollectionType,
   InferCreateInput,
   InferDraftInput,
+  InferQueryCollectionType,
   InferUpdateInput,
+  PopulateInput,
+  RuntimePopulate,
+  RuntimeSelect,
+  SelectInput,
   XenonConfig,
   XenonUser,
 } from "../core/types";
@@ -41,8 +46,22 @@ type Slug<Cfg> = CollectionSlug<Cfg> & string;
 // Narrow via `infer … extends` (an `& AnyCollection` intersection would widen `fields` to an index signature).
 type Coll<Cfg, S extends Slug<Cfg>> = CollectionBySlug<Cfg, S> extends infer C extends AnyCollection ? C : never;
 export type DocOf<Cfg, S extends Slug<Cfg>> = InferCollectionType<Coll<Cfg, S>>;
+export type QueryDocOf<Cfg, S extends Slug<Cfg>, Sel = undefined, Pop = undefined> = InferQueryCollectionType<
+  Cfg,
+  Coll<Cfg, S>,
+  Sel,
+  Pop
+>;
 
-export interface FindOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
+type SelectArg<Cfg, S extends Slug<Cfg>> = string extends S ? RuntimeSelect : SelectInput<Coll<Cfg, S>>;
+type PopulateArg<Cfg, S extends Slug<Cfg>> = string extends S ? RuntimePopulate : PopulateInput<Cfg, S>;
+
+export interface FindOptions<
+  Cfg,
+  S extends Slug<Cfg>,
+  Sel extends SelectArg<Cfg, S> | undefined = undefined,
+  Pop extends PopulateArg<Cfg, S> | undefined = undefined,
+> extends CallContext {
   collection: S;
   where?: Where;
   sort?: string;
@@ -50,18 +69,40 @@ export interface FindOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
   page?: number;
   /** Read working copies (`draftData ?? data`) of all documents. Default `false`. */
   draft?: boolean;
+  /** Inclusion projection over returned document fields (`id` is always preserved). */
+  select?: Sel;
+  /** Explicit batched population of `relation` / `media` fields (zero N+1). */
+  populate?: Pop;
 }
 
-export interface FindByIdOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
+export interface FindByIdOptions<
+  Cfg,
+  S extends Slug<Cfg>,
+  Sel extends SelectArg<Cfg, S> | undefined = undefined,
+  Pop extends PopulateArg<Cfg, S> | undefined = undefined,
+> extends CallContext {
   collection: S;
   id: string;
   draft?: boolean;
+  /** Inclusion projection over returned document fields (`id` is always preserved). */
+  select?: Sel;
+  /** Explicit batched population of `relation` / `media` fields (zero N+1). */
+  populate?: Pop;
 }
 
-export interface FindBySlugOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
+export interface FindBySlugOptions<
+  Cfg,
+  S extends Slug<Cfg>,
+  Sel extends SelectArg<Cfg, S> | undefined = undefined,
+  Pop extends PopulateArg<Cfg, S> | undefined = undefined,
+> extends CallContext {
   collection: S;
   slug: string;
   draft?: boolean;
+  /** Inclusion projection over returned document fields (`id` is always preserved). */
+  select?: Sel;
+  /** Explicit batched population of `relation` / `media` fields (zero N+1). */
+  populate?: Pop;
 }
 
 export interface UploadFile {
@@ -176,9 +217,27 @@ export interface XenonInstance<Cfg extends XenonConfig = XenonConfig> {
   /** Idempotent. Runs the adapter's `init()`; auth is set up lazily on first `getAuth()`. */
   init(): Promise<void>;
 
-  find<S extends Slug<Cfg>>(options: FindOptions<Cfg, S>): Promise<PaginatedResult<DocOf<Cfg, S>>>;
-  findById<S extends Slug<Cfg>>(options: FindByIdOptions<Cfg, S>): Promise<DocOf<Cfg, S> | null>;
-  findBySlug<S extends Slug<Cfg>>(options: FindBySlugOptions<Cfg, S>): Promise<DocOf<Cfg, S> | null>;
+  find<
+    S extends Slug<Cfg>,
+    const Sel extends SelectArg<Cfg, S> | undefined = undefined,
+    const Pop extends PopulateArg<Cfg, S> | undefined = undefined,
+  >(
+    options: FindOptions<Cfg, S, Sel, Pop>,
+  ): Promise<PaginatedResult<QueryDocOf<Cfg, S, Sel, Pop>>>;
+  findById<
+    S extends Slug<Cfg>,
+    const Sel extends SelectArg<Cfg, S> | undefined = undefined,
+    const Pop extends PopulateArg<Cfg, S> | undefined = undefined,
+  >(
+    options: FindByIdOptions<Cfg, S, Sel, Pop>,
+  ): Promise<QueryDocOf<Cfg, S, Sel, Pop> | null>;
+  findBySlug<
+    S extends Slug<Cfg>,
+    const Sel extends SelectArg<Cfg, S> | undefined = undefined,
+    const Pop extends PopulateArg<Cfg, S> | undefined = undefined,
+  >(
+    options: FindBySlugOptions<Cfg, S, Sel, Pop>,
+  ): Promise<QueryDocOf<Cfg, S, Sel, Pop> | null>;
   create<S extends Slug<Cfg>>(options: CreateOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
   /** Throws `XenonError("NOT_FOUND")`. */
   update<S extends Slug<Cfg>>(options: UpdateOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;

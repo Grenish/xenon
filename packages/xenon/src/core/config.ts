@@ -25,6 +25,17 @@ function isUploadCollection(c: AnyCollection): boolean {
 const BLOCK_SLUG_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const ROW_KEYS = new Set(["id"]);
 const BLOCK_KEYS = new Set(["id", "blockType"]);
+const INDEXABLE_FIELD_TYPES = new Set([
+  "text",
+  "number",
+  "boolean",
+  "select",
+  "date",
+  "email",
+  "url",
+  "media",
+  "relation",
+]);
 
 function validateRows(slug: string, path: string, field: { minRows?: number; maxRows?: number }): void {
   for (const k of ["minRows", "maxRows"] as const) {
@@ -72,6 +83,7 @@ function validateFields(
   path: string,
   reserved: Set<string>,
   bySlug: Map<string, AnyCollection>,
+  inRepeater = false,
 ): void {
   if (path && Object.keys(fields).length === 0) fail(slug, path, `needs at least one field.`);
   for (const [key, field] of Object.entries(fields)) {
@@ -87,6 +99,26 @@ function validateFields(
     }
     if (key.includes(".")) {
       fail(slug, at, `field names cannot contain ".".`);
+    }
+
+    const indexable = field as { index?: unknown; unique?: unknown; hasMany?: unknown };
+    if (indexable.index !== undefined && typeof indexable.index !== "boolean") {
+      fail(slug, at, `index must be a boolean.`);
+    }
+    if (indexable.unique !== undefined && typeof indexable.unique !== "boolean") {
+      fail(slug, at, `unique must be a boolean.`);
+    }
+    if (indexable.index === true || indexable.unique === true) {
+      const opt = indexable.unique === true ? "unique" : "index";
+      if (inRepeater) {
+        fail(slug, at, `${opt} cannot be set on fields inside array or blocks.`);
+      }
+      if (!INDEXABLE_FIELD_TYPES.has(field.type)) {
+        fail(slug, at, `${opt} is not supported on "${field.type}" fields.`);
+      }
+      if (indexable.hasMany === true) {
+        fail(slug, at, `${opt} cannot be set on hasMany fields.`);
+      }
     }
 
     if (field.admin?.condition !== undefined) validateCondition(slug, at, key, field.admin.condition, fields);
@@ -126,11 +158,11 @@ function validateFields(
         break;
       case "group":
         if ("defaultValue" in field && field.defaultValue !== undefined) fail(slug, at, `groups cannot have a defaultValue; set defaults on their fields.`);
-        validateFields(slug, field.fields as Record<string, Field>, at, new Set(), bySlug);
+        validateFields(slug, field.fields as Record<string, Field>, at, new Set(), bySlug, inRepeater);
         break;
       case "array":
         validateRows(slug, at, field);
-        validateFields(slug, field.fields as Record<string, Field>, at, ROW_KEYS, bySlug);
+        validateFields(slug, field.fields as Record<string, Field>, at, ROW_KEYS, bySlug, true);
         break;
       case "blocks": {
         validateRows(slug, at, field);
@@ -142,7 +174,7 @@ function validateFields(
           }
           if (seen.has(block.slug)) fail(slug, at, `duplicate block slug "${block.slug}".`);
           seen.add(block.slug);
-          validateFields(slug, block.fields as Record<string, Field>, `${at}[${block.slug}]`, BLOCK_KEYS, bySlug);
+          validateFields(slug, block.fields as Record<string, Field>, `${at}[${block.slug}]`, BLOCK_KEYS, bySlug, true);
         }
         break;
       }
