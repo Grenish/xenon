@@ -1,6 +1,7 @@
 import { memoryAdapter as betterAuthMemoryAdapter } from "better-auth/adapters/memory";
 import { getSchema } from "better-auth/db";
 import { compareStrings, compareValues, matchesOperators } from "./match";
+import { fallbackSearchText, scoreMemorySearch } from "./search";
 import { SlugConflictError, UniqueConflictError, UpdateConflictError } from "./types";
 import type { DatabaseAdapter, DatabaseInitOptions, DocumentRecord, FieldIndexSpec, VersionRecord, Where } from "./types";
 
@@ -81,6 +82,7 @@ function paginate<T>(rows: T[], limit: number, page: number) {
 export function memoryAdapter(): DatabaseAdapter {
   const records = new Map<string, DocumentRecord>();
   const versions = new Map<string, VersionRecord>();
+  const searchIndex = new Map<string, { live: string; draft: string | null }>();
   const authRows: Record<string, Record<string, unknown>[]> = Object.create(null);
   const uniqueSpecs = new Map<string, FieldIndexSpec>();
 
@@ -121,21 +123,44 @@ export function memoryAdapter(): DatabaseAdapter {
       }
     },
     async find(args) {
-      const { collection, source, where = {}, sort = "-createdAt", limit = 10, page = 1 } = args;
+      const { collection, source, where = {}, search, sort, limit = 10, page = 1 } = args;
       const now = args.now ?? new Date();
       const trash = args.trash ?? "exclude";
-      const descending = sort.startsWith("-");
-      const key = descending ? sort.slice(1) : sort;
-      const rows = [...records.values()].filter((row) => row.collection === collection && inTrashScope(row, trash) &&
-        (source === "draft" || (row.status === "published" && !expired(row, now))) && matches(row, where, source));
-      rows.sort((left, right) => {
-        const a = valueFor(left, key, source);
-        const b = valueFor(right, key, source);
-        if (a == null && b != null) return 1;
-        if (a != null && b == null) return -1;
-        const comparison = compareValues(a, b) ?? 0;
-        return (descending ? -comparison : comparison) || compareStrings(left.id, right.id);
+      const query = search?.trim() ?? "";
+      const scores = query ? new Map<string, number>() : null;
+      const rows = [...records.values()].filter((row) => {
+        if (row.collection !== collection || !inTrashScope(row, trash)) return false;
+        // Published reads skip drafts and documents whose scheduled unpublish has passed.
+        if (source !== "draft" && (row.status !== "published" || expired(row, now))) return false;
+        if (!matches(row, where, source)) return false;
+        if (!query) return true;
+        const entry = searchIndex.get(row.id);
+        const text = source === "draft" ? (entry?.draft ?? entry?.live ?? "") : (entry?.live ?? "");
+        const score = scoreMemorySearch(text, query);
+        if (score <= 0) return false;
+        scores!.set(row.id, score);
+        return true;
       });
+      if (scores && !sort?.trim()) {
+        rows.sort((left, right) => {
+          const scoreDiff = (scores.get(right.id) ?? 0) - (scores.get(left.id) ?? 0);
+          if (scoreDiff !== 0) return scoreDiff;
+          const dateDiff = right.createdAt.getTime() - left.createdAt.getTime();
+          return dateDiff || compareStrings(left.id, right.id);
+        });
+      } else {
+        const effectiveSort = sort?.trim() || "-createdAt";
+        const descending = effectiveSort.startsWith("-");
+        const key = descending ? effectiveSort.slice(1) : effectiveSort;
+        rows.sort((left, right) => {
+          const a = valueFor(left, key, source);
+          const b = valueFor(right, key, source);
+          if (a == null && b != null) return 1;
+          if (a != null && b == null) return -1;
+          const comparison = compareValues(a, b) ?? 0;
+          return (descending ? -comparison : comparison) || compareStrings(left.id, right.id);
+        });
+      }
       return paginate(rows, limit, page);
     },
     async findById(collection, id) {
@@ -145,14 +170,29 @@ export function memoryAdapter(): DatabaseAdapter {
     async create(input) {
       assertUnique(input);
       const timestamp = new Date();
-      const { publishAt, unpublishAt, deletedAt, ...rest } = input;
+      const { publishAt, unpublishAt, deletedAt } = input;
       const record: DocumentRecord = {
-        ...structuredClone(rest), id: crypto.randomUUID(), createdAt: timestamp, updatedAt: new Date(timestamp),
+        id: crypto.randomUUID(),
+        collection: input.collection,
+        slug: input.slug,
+        status: input.status,
+        data: structuredClone(input.data),
+        draftData: structuredClone(input.draftData),
+        createdAt: timestamp,
+        updatedAt: new Date(timestamp),
       };
       setSchedule(record, "publishAt", publishAt);
       setSchedule(record, "unpublishAt", unpublishAt);
       setSchedule(record, "deletedAt", deletedAt);
       records.set(record.id, record);
+      searchIndex.set(record.id, {
+        live: input.searchText !== undefined ? (input.searchText ?? "") : fallbackSearchText(record.slug, record.data),
+        draft: input.draftSearchText !== undefined
+          ? input.draftSearchText
+          : record.draftData !== null
+            ? fallbackSearchText(record.slug, record.draftData)
+            : null,
+      });
       return structuredClone(record);
     },
     async update(collection, id, input, options) {
@@ -173,10 +213,24 @@ export function memoryAdapter(): DatabaseAdapter {
       // Strictly increasing, so updatedAt works as the record's version (see DatabaseAdapter.update).
       record.updatedAt = new Date(Math.max(Date.now(), previous.updatedAt.getTime() + 1));
       records.set(id, record);
+      const prevSearch = searchIndex.get(id) ?? { live: "", draft: null };
+      const live = input.searchText !== undefined
+        ? (input.searchText ?? "")
+        : input.data !== undefined
+          ? fallbackSearchText(record.slug, record.data)
+          : prevSearch.live;
+      const draft = input.draftSearchText !== undefined
+        ? input.draftSearchText
+        : input.draftData !== undefined
+          ? (record.draftData !== null ? fallbackSearchText(record.slug, record.draftData) : null)
+          : prevSearch.draft;
+      searchIndex.set(id, { live, draft });
       return structuredClone(record);
     },
     async delete(collection, id) {
-      return records.get(id)?.collection === collection ? records.delete(id) : false;
+      if (records.get(id)?.collection !== collection) return false;
+      searchIndex.delete(id);
+      return records.delete(id);
     },
     async createVersion(input) {
       let last = 0;

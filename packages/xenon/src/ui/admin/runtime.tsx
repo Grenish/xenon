@@ -4,7 +4,7 @@ import type { AdminActionInput, AdminActionResult } from "../../http/admin-actio
 import type { AdminRouteData } from "../../http/admin-loader";
 import { toPlainJson } from "../shared/plain";
 import { useAdminRouter } from "../shared/router";
-import type { ActionResult, AdminDoc, AdminServices, AdminVersionPage, BulkResult, SearchResult } from "../shared/services";
+import type { ActionResult, AdminDoc, AdminServices, AdminVersionPage, BulkResult, PreviewInfo, SearchResult } from "../shared/services";
 
 import { type AdminTheme, themeStore, useAdminTheme } from "./theme-store";
 
@@ -161,6 +161,7 @@ export function useServices(): AdminServices {
       saveGlobal: (input) => run<AdminDoc>({ type: "global.save", ...input }, { refresh: true }),
       getGlobal: (input) => run<AdminDoc | null>({ type: "global.get", ...input }),
       unpublishGlobal: (input) => run<AdminDoc>({ type: "global.unpublish", ...input }, { refresh: true }),
+      previewUrl: (input) => run<PreviewInfo | null>({ type: "preview.url", ...input }),
       async upload({ collection, id, file, data, expectedUpdatedAt }) {
         const base = `${apiPath.replace(/\/+$/, "")}/${encodeURIComponent(collection)}`;
         const ifMatch = id && expectedUpdatedAt ? { "if-match": `"${expectedUpdatedAt}"` } : undefined;

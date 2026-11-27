@@ -152,3 +152,21 @@ describe("duplicate (#18)", () => {
     await expectError(xenon.duplicate({ collection: "posts", id: post.id }), "NOT_FOUND");
   });
 });
+
+describe("trash with full-text search (#17)", () => {
+  test("trashed documents leave search results; the trash can be searched; restore and duplicate are searchable", async () => {
+    const { xenon } = setup();
+    const doc = await xenon.create({ collection: "posts", data: { title: "Nebula guide" } });
+    const ids = async (q: string, extra: { trash?: boolean; draft?: boolean } = {}) =>
+      (await xenon.find({ collection: "posts", search: q, ...extra })).docs.map((d) => d.id);
+    expect(await ids("nebula")).toEqual([doc.id]);
+    await xenon.delete({ collection: "posts", id: doc.id });
+    expect(await ids("nebula")).toEqual([]);
+    expect(await ids("nebula", { draft: true })).toEqual([]);
+    expect(await ids("nebula", { trash: true })).toEqual([doc.id]);
+    await xenon.restore({ collection: "posts", id: doc.id });
+    expect(await ids("nebula")).toEqual([doc.id]);
+    const copy = await xenon.duplicate({ collection: "posts", id: doc.id, data: { title: "Quasar notes" } });
+    expect(await ids("quasar", { draft: true })).toEqual([copy.id]);
+  });
+});

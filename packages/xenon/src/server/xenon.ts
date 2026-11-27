@@ -31,6 +31,7 @@ import {
   validatePopulate,
   validateSelect,
 } from "./populate";
+import { createSearchInput, searchTextFor, updateSearchInput } from "./search";
 import {
   PRESIGN_DEFAULT_EXPIRES_IN,
   type PreparedUpload,
@@ -624,6 +625,7 @@ export function createXenon<Cfg extends XenonConfig>(
         source: draft ? "draft" : "published",
         ...(o.trash === true ? { trash: "only" as const } : {}),
         where: withFieldDefaults(collection, o.where),
+        search: o.search,
         sort: o.sort,
         limit: o.limit,
         page: o.page,
@@ -700,6 +702,7 @@ export function createXenon<Cfg extends XenonConfig>(
           status: asDraft ? "draft" : "published",
           data: asDraft ? {} : data,
           draftData: asDraft ? data : null,
+          ...createSearchInput(collection, data, slug, asDraft),
         }), slug).catch(conflict);
       } catch (err) {
         if (stored) await requireStorage().delete(stored.key).catch(() => {});
@@ -784,8 +787,8 @@ export function createXenon<Cfg extends XenonConfig>(
           collection.slug,
           existing.id,
           asDraft
-            ? { slug, draftData: data }
-            : { slug, data, draftData: null, status: "published", ...clearedOnPublish(existing) },
+            ? { slug, draftData: data, ...updateSearchInput(collection, data, slug, true) }
+            : { slug, data, draftData: null, status: "published", ...clearedOnPublish(existing), ...updateSearchInput(collection, data, slug, false) },
           ifUpdatedAt ? { ifUpdatedAt } : undefined,
         ), slug).catch(conflict);
         if (!written) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
@@ -818,6 +821,7 @@ export function createXenon<Cfg extends XenonConfig>(
         status: "draft",
         draftData: existing.draftData ?? existing.data,
         ...(existing.unpublishAt ? { unpublishAt: null } : {}),
+        draftSearchText: searchTextFor(collection, existing.draftData ?? existing.data, existing.slug),
       });
       if (!record) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
       await notify(collection.slug, record.id, "unpublish");
@@ -1034,6 +1038,7 @@ export function createXenon<Cfg extends XenonConfig>(
               status: "published",
               data,
               draftData: null,
+              ...createSearchInput(collection, data, s, false),
             }),
             slug,
           ).catch(conflict);
@@ -1067,7 +1072,7 @@ export function createXenon<Cfg extends XenonConfig>(
             (s) => requireDb().update(
               collection.slug,
               existing.id,
-              { slug: s, data, draftData: null, status: "published" },
+              { slug: s, data, draftData: null, status: "published", ...updateSearchInput(collection, data, s, false) },
               ifUpdatedAt ? { ifUpdatedAt } : undefined,
             ),
             slug,

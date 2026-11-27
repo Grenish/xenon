@@ -250,3 +250,31 @@ describe("scheduled publishing (#16)", () => {
     await expectError(plain.runScheduled(), "NOT_IMPLEMENTED");
   });
 });
+
+describe("with full-text search (#17)", () => {
+  test("a scheduled publish, a restore and a scheduled unpublish keep search results right", async () => {
+    const { xenon, db } = setup();
+    // Search text includes the slug, so the searched words live in `summary` only.
+    const doc = await xenon.create({ collection: "posts", data: { title: "Post", summary: "rocket" } });
+    await xenon.update({ collection: "posts", id: doc.id, data: { summary: "telescope" }, draft: true });
+    const search = async (q: string, draft = false) => (await xenon.find({ collection: "posts", search: q, draft })).docs.map((d) => d.id);
+    // The pending draft is searchable in drafts only.
+    expect(await search("telescope")).toEqual([]);
+    expect(await search("telescope", true)).toEqual([doc.id]);
+
+    await xenon.schedule({ collection: "posts", id: doc.id, publishAt: new Date(Date.now() + 60_000) });
+    await xenon.runScheduled({ now: new Date(Date.now() + 120_000) });
+    expect(await search("telescope")).toEqual([doc.id]);
+    expect(await search("rocket")).toEqual([]);
+
+    const original = (await xenon.findVersions({ collection: "posts", id: doc.id })).docs.at(-1)!;
+    await xenon.restoreVersion({ collection: "posts", id: original.id });
+    expect(await search("rocket", true)).toEqual([doc.id]);
+    expect(await search("rocket")).toEqual([]);
+
+    // Past its unpublish time, the document drops out of published search before cron runs.
+    await db.update("posts", doc.id, { unpublishAt: new Date(Date.now() - 1000) });
+    expect(await search("telescope")).toEqual([]);
+    expect(await search("rocket", true)).toEqual([doc.id]);
+  });
+});

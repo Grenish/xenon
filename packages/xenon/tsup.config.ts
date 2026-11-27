@@ -26,6 +26,7 @@ const shared: Options = {
   external: [
     "xenon-cms/client",
     "xenon-cms/next-client",
+    "xenon-cms/live-preview",
     "zod",
     "react",
     "react-dom",
@@ -84,6 +85,14 @@ export default defineConfig([
   {
     ...shared,
     entry: { "next-client": "src/next/admin/router.tsx" },
+    platform: "browser",
+    splitting: false,
+    treeshake: false,
+    banner: { js: '"use client";' },
+  },
+  {
+    ...shared,
+    entry: { "live-preview": "src/react/live-preview.ts" },
     platform: "browser",
     splitting: false,
     treeshake: false,

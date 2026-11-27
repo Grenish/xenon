@@ -227,6 +227,9 @@ function validateCollection(c: AnyCollection, bySlug: Map<string, AnyCollection>
       fail(slug, null, `admin.defaultColumns entry "${col}" is not a field or system field.`);
     }
   }
+  if (c.admin?.previewUrl !== undefined && typeof c.admin.previewUrl !== "function") {
+    fail(slug, null, `admin.previewUrl must be a function.`);
+  }
   validateVersioning(c);
 }
 
