@@ -46,7 +46,7 @@ function formData(fields: ClientField[], source: Record<string, unknown>): Recor
   return data;
 }
 
-export function initialData(collection: ClientCollection, doc: AdminDoc | null): Record<string, unknown> {
+export function initialData(collection: { fields: ClientField[] }, doc: AdminDoc | null): Record<string, unknown> {
   return formData(collection.fields, doc?.data ?? {});
 }
 

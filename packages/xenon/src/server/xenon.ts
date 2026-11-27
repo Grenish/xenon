@@ -8,9 +8,11 @@ import { slugify } from "../core/slug";
 
 export { slugify };
 import { XenonError } from "../core/errors";
+import { type AnyGlobal, GLOBALS_COLLECTION } from "../core/global";
 import type { AnyCollection, Field, XenonConfig, XenonUser } from "../core/types";
 import { UPLOAD_KEYS } from "../core/types";
 import { type ValidationMode, validateCollectionData } from "../core/validation";
+import { createGlobalMethods } from "./globals";
 import {
   applySelect,
   extractFieldIndexes,
@@ -97,6 +99,7 @@ export function createXenon<Cfg extends XenonConfig>(
   options: CreateXenonInternalOptions = {},
 ): XenonInstance<Cfg> {
   const collections = new Map<string, AnyCollection>(config.collections.map((c) => [c.slug, c]));
+  const globals = new Map<string, AnyGlobal>((config.globals ?? []).map((g) => [g.slug, g]));
   let initPromise: Promise<void> | null = null;
   let authPromise: Promise<XenonAuth> | null = null;
 
@@ -347,9 +350,29 @@ export function createXenon<Cfg extends XenonConfig>(
     return modifiers.select ? docs.map((d) => applySelect(d, modifiers.select!, modifiers.populate, true)) : docs;
   }
 
+  async function notifyGlobal(slug: string, id: string, op: "update" | "unpublish", draft = false) {
+    try {
+      await options.onChange?.({ collection: GLOBALS_COLLECTION, global: slug, id, op, draft });
+    } catch (err) {
+      console.warn("[xenon] onChange handler failed:", err);
+    }
+  }
+
+  const globalMethods = createGlobalMethods({
+    config,
+    globals,
+    init,
+    requireDb,
+    getCollection: (slug) => collections.get(slug),
+    checkCollectionReadAccess: (collection, ctx, draft) => checkAccess(collection, "read", ctx, draft),
+    toCollectionDoc: toDoc,
+    notifyGlobal,
+  });
+
   const api: XenonInstance<XenonConfig> = {
     config,
     init,
+    ...globalMethods,
 
     async find(o) {
       await init();

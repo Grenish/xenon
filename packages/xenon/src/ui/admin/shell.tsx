@@ -5,6 +5,7 @@ import {
   RiArrowUpDownLine,
   RiComputerLine,
   RiFileTextLine,
+  RiGlobalLine,
   RiHome5Line,
   RiImageLine,
   RiLogoutBoxRLine,
@@ -46,6 +47,7 @@ import { type AdminTheme, useAdminRuntime } from "./runtime";
 import { AvatarStack, dedupe, displayName, leavePresence, PersonAvatar, usePresence } from "./presence";
 import { type Crumb, useShellBarContent } from "./shell-bar";
 import type { PresencePeer } from "../../adapters/types";
+import { GLOBALS_COLLECTION } from "../../core/types";
 
 type Icon = ComponentType<{ className?: string }>;
 
@@ -75,14 +77,24 @@ function NavLink({ href, icon: Icon, children, active, onNavigate }: { href: str
 }
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
-  const { basePath, collections } = useAdmin();
+  const { basePath, collections, globals } = useAdmin();
   const pathname = useAdminPathname();
   const isActive = (href: string, exact = false) => (exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`));
 
-  const groups = new Map<string, ClientCollection[]>();
+  const groups = new Map<string, { key: string; href: string; icon: Icon; label: string; exact?: boolean }[]>();
   for (const c of collections) {
     const group = c.admin.group ?? (c.upload ? "Library" : "Content");
-    groups.set(group, [...(groups.get(group) ?? []), c]);
+    groups.set(group, [
+      ...(groups.get(group) ?? []),
+      { key: `c:${c.slug}`, href: adminRoutes.list(basePath, c.slug), icon: collectionIcon(c), label: c.labels.plural },
+    ]);
+  }
+  for (const g of globals) {
+    const group = g.admin.group ?? "Globals";
+    groups.set(group, [
+      ...(groups.get(group) ?? []),
+      { key: `g:${g.slug}`, href: adminRoutes.global(basePath, g.slug), icon: RiGlobalLine, label: g.label, exact: true },
+    ]);
   }
 
   return (
@@ -95,9 +107,9 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
       {[...groups].map(([group, items]) => (
         <div key={group} className="xe:flex xe:flex-col xe:gap-px">
           <p className="xe:px-2.5 xe:pb-1.5 xe:text-xs xe:text-muted-foreground">{group}</p>
-          {items.map((c) => (
-            <NavLink key={c.slug} href={adminRoutes.list(basePath, c.slug)} icon={collectionIcon(c)} active={isActive(adminRoutes.list(basePath, c.slug))} onNavigate={onNavigate}>
-              {c.labels.plural}
+          {items.map((item) => (
+            <NavLink key={item.key} href={item.href} icon={item.icon} active={isActive(item.href, item.exact)} onNavigate={onNavigate}>
+              {item.label}
             </NavLink>
           ))}
         </div>
@@ -233,15 +245,22 @@ function SidebarContents({ onNavigate, onSearch }: { onNavigate?: () => void; on
 
 /** Teammates online right now, and what each is doing. Hidden when you're alone. */
 function TeamPresence() {
-  const { user, basePath, collections } = useAdmin();
+  const { user, basePath, collections, globals } = useAdmin();
   const { snapshot } = usePresence();
   const pathname = useAdminPathname();
-  // People on the open document are shown by the editor itself; list everyone else here.
+  // People on the open document/global are shown by the editor itself; list everyone else here.
   const [, docCollection, docId] = pathname.slice(`${basePath}/collections`.length).split("/");
-  const onThisDoc = (p: PresencePeer) => pathname.startsWith(`${basePath}/collections/`) && !!docId && p.location?.collection === docCollection && p.location?.id === docId;
+  const [, globalSlug] = pathname.slice(`${basePath}/globals`.length).split("/");
+  const onThisDoc = (p: PresencePeer) =>
+    (pathname.startsWith(`${basePath}/collections/`) && !!docId && p.location?.collection === docCollection && p.location?.id === docId) ||
+    (pathname.startsWith(`${basePath}/globals/`) && !!globalSlug && p.location?.collection === GLOBALS_COLLECTION && p.location?.id === globalSlug);
   const people = dedupe((snapshot?.peers ?? []).filter((p) => p.user.id !== user.id && !onThisDoc(p)));
   if (!people.length) return null;
   const where = (p: PresencePeer) => {
+    if (p.location?.collection === GLOBALS_COLLECTION && p.location.id) {
+      const g = globals.find((item) => item.slug === p.location!.id);
+      if (g) return { label: `${p.editing ? "Editing" : "Viewing"} ${g.label}`, href: adminRoutes.global(basePath, g.slug) };
+    }
     const c = p.location ? collections.find((col) => col.slug === p.location!.collection) : undefined;
     if (!p.location || !c) return { label: "Overview", href: adminRoutes.dashboard(basePath) };
     if (!p.location.id) return { label: `Browsing ${c.labels.plural.toLowerCase()}`, href: adminRoutes.list(basePath, c.slug) };
@@ -280,9 +299,11 @@ function TeamPresence() {
 
 /** Where you are when a page doesn't say: derived from the route. */
 function useDefaultCrumbs(): Crumb[] {
-  const { basePath, collections } = useAdmin();
+  const { basePath, collections, globals } = useAdmin();
   const pathname = useAdminPathname();
   if (pathname.startsWith(adminRoutes.settings(basePath))) return [{ label: "Settings" }];
+  const g = globals.find((item) => pathname === adminRoutes.global(basePath, item.slug));
+  if (g) return [{ label: g.admin.group ?? "Globals" }, { label: g.label }];
   const c = collections.find((col) => pathname.startsWith(adminRoutes.list(basePath, col.slug)));
   if (c) return [{ label: c.admin.group ?? (c.upload ? "Library" : "Content") }, { label: c.labels.plural }];
   return [{ label: "Overview" }];

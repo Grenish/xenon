@@ -5,7 +5,7 @@
  */
 import type { DocumentStatus, XenonRole } from "../../core/types";
 import type { ValidationIssue } from "../../core/validation";
-import type { ClientCollection } from "./client-config";
+import type { ClientCollection, ClientGlobal } from "./client-config";
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -76,6 +76,12 @@ export interface AdminServices {
   search(input: SearchInput): Promise<ActionResult<SearchResult>>;
   /** Upload to an upload collection (create, or replace the file when `id` is given). */
   upload(input: { collection: string; id?: string; file: File; data: Record<string, unknown>; expectedUpdatedAt?: string }): Promise<ActionResult<AdminDoc>>;
+  /** Save a global (`draft: true` = save draft, otherwise publish). */
+  saveGlobal(input: { slug: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string }): Promise<ActionResult<AdminDoc>>;
+  /** Fresh working copy of a global (or `null` if never saved). */
+  getGlobal(input: { slug: string }): Promise<ActionResult<AdminDoc | null>>;
+  /** Unpublish a global (requires drafts enabled). */
+  unpublishGlobal(input: { slug: string }): Promise<ActionResult<AdminDoc>>;
 }
 
 export interface AdminUserInfo {
@@ -102,6 +108,7 @@ export interface AdminContextValue {
   /** e.g. `/api/xenon` */
   apiPath: string;
   collections: ClientCollection[];
+  globals: ClientGlobal[];
   user: AdminUserInfo;
   services: AdminServices;
 }
@@ -161,6 +168,7 @@ export const adminRoutes = {
   list: (base: string, collection: string) => `${base}/collections/${collection}`,
   create: (base: string, collection: string) => `${base}/collections/${collection}/new`,
   edit: (base: string, collection: string, id: string) => `${base}/collections/${collection}/${id}`,
+  global: (base: string, slug: string) => `${base}/globals/${slug}`,
   settings: (base: string, tab: SettingsTab = "profile") => (tab === "profile" ? `${base}/settings` : `${base}/settings/${tab}`),
   users: (base: string) => `${base}/settings/team`,
   account: (base: string) => `${base}/settings`,

@@ -16,7 +16,9 @@ export {
 export type { JsonCacheOptions } from "./cache";
 export {
   canReadCollection,
+  canReadGlobal,
   filterReadableCollections,
+  filterReadableGlobals,
   loadAdminData,
   parseAdminPath,
   parseThemeCookie,
@@ -33,6 +35,7 @@ export {
   getHttpXenon,
   listAllUsers,
   loadAdminDoc,
+  loadAdminGlobal,
   mergeSessionHeaders,
   summaryTitle,
   titleFieldKey,
@@ -46,7 +49,7 @@ export type {
   DispatchAdminActionOptions,
 } from "./admin-action";
 export { loadDashboard } from "./dashboard-data";
-export type { ClientCollection, ClientField } from "../ui/shared/client-config";
+export type { ClientCollection, ClientField, ClientGlobal } from "../ui/shared/client-config";
 export type {
   AccountSession,
   ActionResult,

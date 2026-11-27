@@ -1,7 +1,9 @@
 import { isXenonError, XenonError } from "../core/errors";
+import { getGlobal } from "../core/global";
 import type { AnyCollection, XenonConfig, XenonRole, XenonUser } from "../core/types";
 import { type DocumentRecord, SlugConflictError, type Where } from "../adapters/types";
 import { resolveSecret, toRole } from "../auth";
+import { findGlobalRecord } from "../server/globals";
 import { signPresenceToken } from "../server/presence";
 import type { XenonInstance } from "../server/types";
 import { createXenon } from "../server/xenon";
@@ -25,6 +27,9 @@ export type AdminActionInput =
   | { type: "doc.unpublish"; collection: string; id: string }
   | { type: "doc.remove"; collection: string; id: string }
   | ({ type: "doc.search" } & SearchInput)
+  | { type: "global.get"; slug: string }
+  | { type: "global.save"; slug: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string }
+  | { type: "global.unpublish"; slug: string }
   | { type: "users.list" }
   | { type: "users.create"; name: string; email: string; password: string; role: XenonRole }
   | { type: "users.setRole"; userId: string; role: XenonRole }
@@ -164,6 +169,13 @@ export async function loadAdminDoc(xenon: XenonInstance, config: XenonConfig, co
   const doc = await xenon.findById({ collection, id, draft: true, user, overrideAccess: false });
   if (!doc) return null;
   const record = (await config.db?.findById(collection, id)) ?? null;
+  return toAdminDoc(doc as Record<string, unknown>, record);
+}
+
+export async function loadAdminGlobal(xenon: XenonInstance, config: XenonConfig, slug: string, user: XenonUser) {
+  const doc = await xenon.getGlobal({ slug, draft: true, user, overrideAccess: false });
+  if (!doc) return null;
+  const record = config.db ? await findGlobalRecord(config.db, slug) : null;
   return toAdminDoc(doc as Record<string, unknown>, record);
 }
 
@@ -422,6 +434,29 @@ export async function dispatchAdminActionWithHeaders(
       case "doc.remove": {
         await xenon.delete({ ...ctx, collection: input.collection, id: input.id });
         return { result: ok({ id: input.id }), headers: responseHeaders };
+      }
+
+      case "global.get": {
+        if (!getGlobal(config, input.slug)) throw new XenonError("NOT_FOUND", `Unknown global "${input.slug}".`);
+        return { result: ok(await loadAdminGlobal(xenon, config, input.slug, user)), headers: responseHeaders };
+      }
+
+      case "global.save": {
+        if (!getGlobal(config, input.slug)) throw new XenonError("NOT_FOUND", `Unknown global "${input.slug}".`);
+        await xenon.updateGlobal({
+          ...ctx,
+          slug: input.slug,
+          data: input.data as never,
+          draft: input.draft,
+          expectedUpdatedAt: typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : undefined,
+        });
+        return { result: ok(await loadAdminGlobal(xenon, config, input.slug, user)), headers: responseHeaders };
+      }
+
+      case "global.unpublish": {
+        if (!getGlobal(config, input.slug)) throw new XenonError("NOT_FOUND", `Unknown global "${input.slug}".`);
+        await xenon.unpublishGlobal({ ...ctx, slug: input.slug });
+        return { result: ok(await loadAdminGlobal(xenon, config, input.slug, user)), headers: responseHeaders };
       }
 
       case "doc.search": {

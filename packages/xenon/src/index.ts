@@ -23,6 +23,26 @@ export {
 } from "./core/fields";
 export { defineCollection } from "./core/collection";
 export type { DefineCollectionInput } from "./core/collection";
+export { defineGlobal, getGlobal, buildGlobalSchema, validateGlobalData } from "./core/global";
+export type {
+  AnyGlobal,
+  DefineGlobalInput,
+  GlobalAccess,
+  GlobalAdminOptions,
+  GlobalBySlug,
+  GlobalConfig,
+  GlobalSlug,
+  GlobalSystemFields,
+  InferConfigGlobals,
+  InferGlobalCreateInput,
+  InferGlobalData,
+  InferGlobalDraftInput,
+  InferGlobalType,
+  InferGlobalUpdateInput,
+  InferQueryGlobalType,
+  PopulateGlobalInput,
+  SelectGlobalInput,
+} from "./core/global";
 export { defineConfig, getCollection, XenonConfigError } from "./core/config";
 export { XenonError, isXenonError } from "./core/errors";
 export type { XenonErrorCode } from "./core/errors";

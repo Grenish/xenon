@@ -3,6 +3,7 @@
  * Everything here is erased at runtime — no imports with side effects.
  */
 import type { DatabaseAdapter, PresenceStore, StorageAdapter, WhereOperators } from "../adapters/types";
+import type { AnyGlobal } from "./global";
 
 /* -------------------------------------------------------------------------- */
 /*                                   Utils                                    */
@@ -327,6 +328,9 @@ export type SystemKey = (typeof SYSTEM_KEYS)[number];
 export const UPLOAD_KEYS = ["filename", "mimeType", "filesize", "url", "width", "height"] as const;
 export type UploadKey = (typeof UPLOAD_KEYS)[number];
 
+/** Reserved internal `xenon_documents.collection` namespace for singleton globals. */
+export const GLOBALS_COLLECTION = "_xenon_globals";
+
 /** Keys of `Fs` whose field is a `text` field. */
 export type TextFieldKeys<Fs extends FieldsMap> = {
   [K in keyof Fs]: Fs[K] extends { type: "text" } ? K : never;
@@ -393,8 +397,12 @@ export interface XenonAuthConfig {
   apiKeys?: readonly { key: string; role: XenonRole; name?: string }[];
 }
 
-export interface XenonConfigInput<Cs extends readonly AnyCollection[] = readonly AnyCollection[]> {
+export interface XenonConfigInput<
+  Cs extends readonly AnyCollection[] = readonly AnyCollection[],
+  Gs extends readonly AnyGlobal[] = readonly AnyGlobal[],
+> {
   collections: Cs;
+  globals?: Gs;
   db?: DatabaseAdapter;
   storage?: StorageAdapter;
   auth?: XenonAuthConfig;
@@ -407,8 +415,11 @@ export interface XenonConfigInput<Cs extends readonly AnyCollection[] = readonly
   presence?: PresenceStore | false;
 }
 
-export interface XenonConfig<Cs extends readonly AnyCollection[] = readonly AnyCollection[]>
-  extends XenonConfigInput<Cs> {
+export interface XenonConfig<
+  Cs extends readonly AnyCollection[] = readonly AnyCollection[],
+  Gs extends readonly AnyGlobal[] = readonly AnyGlobal[],
+> extends XenonConfigInput<Cs, Gs> {
+  globals: Gs;
   admin: { path: string };
   api: { path: string };
 }
@@ -709,7 +720,7 @@ type FieldValueWithPopulate<Cfg, Fs, K extends keyof Fs, Pop> = K extends keyof 
     : PopulatedFieldValue<Cfg, Fs[K], Exclude<Pop[K], undefined>>
   : InferFieldValue<Fs[K]>;
 
-type PopulatedFieldsData<Cfg, Fs, Pop> = [Pop] extends [undefined]
+export type PopulatedFieldsData<Cfg, Fs, Pop> = [Pop] extends [undefined]
   ? InferFieldsData<Fs>
   : Prettify<
       { -readonly [K in ReadPresentKeys<Fs>]: FieldValueWithPopulate<Cfg, Fs, K, Pop> } & {
@@ -755,7 +766,7 @@ type ProjectedPropValue<Doc, K extends keyof Doc, Sel, Pop> = K extends keyof Se
     : Doc[K]
   : Doc[K];
 
-type ProjectObject<Doc, Sel, Pop, IsRoot extends boolean> = Prettify<
+export type ProjectObject<Doc, Sel, Pop, IsRoot extends boolean> = Prettify<
   { -readonly [K in RequiredKeptKeys<Doc, Sel, Pop, IsRoot>]: ProjectedPropValue<Doc, K, Sel, Pop> } & {
     -readonly [K in OptionalKeptKeys<Doc, Sel, Pop, IsRoot>]?: ProjectedPropValue<Doc, K, Sel, Pop>;
   }

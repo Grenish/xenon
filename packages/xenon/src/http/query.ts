@@ -208,8 +208,10 @@ function normalizeSelectJson(input: unknown, depth = 0): Record<string, unknown>
   return out;
 }
 
+type ReadFieldContainer = { fields: FieldsMap; upload?: AnyCollection["upload"] };
+
 /** Parse `?select=title,slug`, `?select[title]=true`, `?select[seo][noIndex]=true`, or JSON `?select={...}`. */
-export function parseSelect(params: URLSearchParams, collection: AnyCollection): RuntimeSelect | undefined {
+export function parseSelect(params: URLSearchParams, collection: ReadFieldContainer): RuntimeSelect | undefined {
   const raw = single(params, "select");
   const bracketKeys = [...new Set([...params.keys()].filter((key) => key.startsWith("select[")))];
   if (raw !== null && bracketKeys.length) return bad("select and bracket select cannot be combined.");
@@ -419,7 +421,7 @@ function setPopulatePath(target: Record<string, unknown>, segments: readonly str
  */
 export function parsePopulate(
   params: URLSearchParams,
-  collection: AnyCollection,
+  collection: ReadFieldContainer,
   getCollection?: (slug: string) => AnyCollection | undefined,
 ): RuntimePopulate | undefined {
   const raw = single(params, "populate");
@@ -470,10 +472,10 @@ export interface ParsedReadQuery {
   populate?: RuntimePopulate;
 }
 
-/** Parse read options shared by single-document GET (`draft`, `select`, `populate`). */
+/** Parse read options shared by single-document and global GET (`draft`, `select`, `populate`). */
 export function parseReadQuery(
   params: URLSearchParams,
-  collection: AnyCollection,
+  collection: ReadFieldContainer,
   getCollection?: (slug: string) => AnyCollection | undefined,
 ): ParsedReadQuery {
   const select = parseSelect(params, collection);

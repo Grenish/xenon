@@ -9,6 +9,7 @@ export const xenonTags = {
   all: "xenon",
   collection: (collection: string) => `xenon:${collection}`,
   doc: (collection: string, id: string) => `xenon:${collection}:${id}`,
+  global: (slug: string) => `xenon:global:${slug}`,
 } as const;
 
 const instances = new WeakMap<XenonConfig, XenonInstance<XenonConfig>>();
@@ -16,17 +17,21 @@ const instances = new WeakMap<XenonConfig, XenonInstance<XenonConfig>>();
 /**
  * Memoized Local API for Next.js: wires BetterAuth cookies into server actions and expires
  * Xenon cache tags after every write. Draft-only saves leave live content unchanged, so they
- * expire just the document's own tag instead of the site-wide and collection tags.
+ * expire just the document's own tag instead of the site-wide and collection/global tags.
  */
 export function getXenon<Cfg extends XenonConfig>(config: Cfg): XenonInstance<Cfg> {
   let xenon = instances.get(config);
   if (!xenon) {
     xenon = createXenon(config, {
       authPlugins: [nextCookies()],
-      onChange: ({ collection, id, draft }) => {
-        const tags = draft
-          ? [xenonTags.doc(collection, id)]
-          : [xenonTags.all, xenonTags.collection(collection), xenonTags.doc(collection, id)];
+      onChange: ({ collection, global, id, draft }) => {
+        const tags = global
+          ? draft
+            ? [xenonTags.doc(collection, id)]
+            : [xenonTags.all, xenonTags.global(global), xenonTags.doc(collection, id)]
+          : draft
+            ? [xenonTags.doc(collection, id)]
+            : [xenonTags.all, xenonTags.collection(collection), xenonTags.doc(collection, id)];
         for (const tag of tags) {
           try {
             revalidateTag(tag, { expire: 0 });
