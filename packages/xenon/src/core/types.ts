@@ -4,6 +4,7 @@
  */
 import type { DatabaseAdapter, PresenceStore, StorageAdapter, WhereOperators } from "../adapters/types";
 import type { AnyGlobal } from "./global";
+import type { AnyCollectionHooks, CollectionHooks, FieldHooks } from "./hooks";
 
 /* -------------------------------------------------------------------------- */
 /*                                   Utils                                    */
@@ -115,6 +116,8 @@ export interface BaseFieldOptions<V> {
   defaultValue?: V;
   admin?: FieldAdminOptions;
   validate?: FieldValidateFn<V>;
+  /** Field lifecycle hooks (see `FieldHooks`). Server-only: never sent to the admin client. */
+  hooks?: FieldHooks<V>;
 }
 
 /**
@@ -177,6 +180,8 @@ interface ContainerFieldOptions<V> {
   label?: string;
   admin?: FieldAdminOptions;
   validate?: FieldValidateFn<V>;
+  /** Field lifecycle hooks; a container's hook runs after the hooks of its nested fields. */
+  hooks?: FieldHooks<V>;
 }
 
 export interface GroupFieldOptions<Fs extends FieldsMap = FieldsMap> extends ContainerFieldOptions<Record<string, unknown>> {
@@ -360,7 +365,14 @@ export interface CollectionConfig<
   upload?: Up;
   admin?: CollectionAdminOptions<Fs>;
   access?: CollectionAccess;
+  /** Lifecycle hooks (see `CollectionHooks`). Server-only. */
+  hooks?: CollectionHooks<CollectionHookData<Fs, Up>, CollectionHookDoc<Fs, Up>>;
 }
+
+/** Field data that collection hooks see for fields `Fs` (plus upload metadata on upload collections). */
+export type CollectionHookData<Fs extends FieldsMap, Up> = InferCollectionData<{ slug: string; fields: Fs; upload: Up & (boolean | UploadOptions) }>;
+/** A full document as collection hooks see it. */
+export type CollectionHookDoc<Fs extends FieldsMap, Up> = Prettify<SystemFields & CollectionHookData<Fs, Up>>;
 
 /**
  * Any collection, regardless of its generics. Declared structurally (with widened key types)
@@ -380,6 +392,7 @@ export interface AnyCollection {
     description?: string;
   };
   access?: CollectionAccess;
+  hooks?: AnyCollectionHooks;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -584,11 +597,13 @@ export type InferBlockType<B extends AnyBlock> = BlockValue<B, "read">;
 /** Union of collection slugs in a config. */
 export type CollectionSlug<Cfg> = CollectionsOf<Cfg>["slug"];
 
-/** The collection definition with slug `S` in a config. */
-export type CollectionBySlug<Cfg, S extends CollectionSlug<Cfg>> = Extract<
-  CollectionsOf<Cfg>,
-  { slug: S }
->;
+/**
+ * The collection definition with slug `S` in a config. With an erased config (`XenonConfig`, slugs
+ * typed `string`, e.g. the `xenon` handed to hooks) any slug maps to the loose collection type.
+ */
+export type CollectionBySlug<Cfg, S extends CollectionSlug<Cfg>> = string extends CollectionSlug<Cfg>
+  ? CollectionsOf<Cfg>
+  : Extract<CollectionsOf<Cfg>, { slug: S }>;
 
 /** Map of slug → document type for every collection in a config. */
 export type InferConfigDocuments<Cfg> = {
@@ -787,3 +802,5 @@ export type InferQueryCollectionType<Cfg, C extends AnyCollection, Sel = undefin
       Pop,
       true
     >;
+
+export type * from "./hooks";

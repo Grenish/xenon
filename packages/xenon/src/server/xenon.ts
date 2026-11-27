@@ -9,10 +9,18 @@ import { slugify } from "../core/slug";
 export { slugify };
 import { XenonError } from "../core/errors";
 import { type AnyGlobal, GLOBALS_COLLECTION } from "../core/global";
+import type { HookBaseArgs, HookContext, HookOperation } from "../core/hooks";
 import type { AnyCollection, Field, XenonConfig, XenonUser } from "../core/types";
 import { UPLOAD_KEYS } from "../core/types";
 import { type ValidationMode, validateCollectionData } from "../core/validation";
 import { createGlobalMethods } from "./globals";
+import {
+  hasHooks,
+  MAX_HOOK_DEPTH,
+  runChainHooks,
+  runEffectHooks,
+  runFieldHooks,
+} from "./hooks";
 import {
   applySelect,
   extractFieldIndexes,
@@ -34,6 +42,41 @@ import type { CallContext, CreateXenonOptions, PresignUploadOutput, UploadFile, 
 
 type AnyDoc = Record<string, unknown>;
 type Op = "read" | "create" | "update" | "delete";
+
+/** Internal call option: how many hook-initiated Local API calls deep this call is. */
+const HOOK_DEPTH = Symbol("xenon.hookDepth");
+type HookCall = CallContext & { [HOOK_DEPTH]?: number };
+
+/** Local API methods that the `xenon` handed to hooks forwards `context` and depth through. */
+const SCOPED_METHODS = [
+  "find",
+  "findById",
+  "findBySlug",
+  "create",
+  "update",
+  "unpublish",
+  "delete",
+  "presignUpload",
+  "completeUpload",
+] as const;
+
+/** Per-call hook state: one shared `context`, and a lazily built hook-facing `xenon`. */
+interface OpScope {
+  user: XenonUser | null;
+  context: HookContext;
+  depth: number;
+  readonly xenon: XenonInstance;
+}
+
+const isRecord = (v: unknown): v is AnyDoc => typeof v === "object" && v !== null && !Array.isArray(v);
+
+function cloneInput(data: unknown): unknown {
+  try {
+    return structuredClone(data);
+  } catch {
+    return data;
+  }
+}
 
 /** Internal (never returned) storage metadata kept inside `data` of upload documents. */
 const FILE_KEY = "_file";
@@ -155,6 +198,99 @@ export function createXenon<Cfg extends XenonConfig>(
         ? new XenonError("FORBIDDEN", `You are not allowed to ${op} "${collection.slug}".`)
         : new XenonError("UNAUTHORIZED", "Authentication required.");
     }
+  }
+
+  /** A Local API whose calls carry `context` and count one level deeper (cycle guard for hooks). */
+  function scopedXenon(depth: number, context: HookContext): XenonInstance {
+    const scoped = Object.create(api) as Record<string, unknown>;
+    for (const name of SCOPED_METHODS) {
+      const fn = api[name] as unknown as (o: AnyDoc) => unknown;
+      scoped[name] = (o: AnyDoc) => fn({ context, ...o, [HOOK_DEPTH]: depth });
+    }
+    return scoped as unknown as XenonInstance;
+  }
+
+  function scopeOf(o: CallContext): OpScope {
+    const depth = (o as HookCall)[HOOK_DEPTH] ?? 0;
+    if (depth > MAX_HOOK_DEPTH) {
+      throw new Error(
+        `[xenon] Hooks nested Local API calls more than ${MAX_HOOK_DEPTH} levels deep: a hook is probably re-triggering itself. Use \`context\` to break the cycle.`,
+      );
+    }
+    const context = o.context ?? {};
+    let scoped: XenonInstance | undefined;
+    return {
+      user: o.user ?? null,
+      context,
+      depth,
+      get xenon() {
+        scoped ??= scopedXenon(depth + 1, context);
+        return scoped;
+      },
+    };
+  }
+
+  function hookBase(collection: AnyCollection, scope: OpScope): HookBaseArgs {
+    return { collection, user: scope.user, context: scope.context, xenon: scope.xenon };
+  }
+
+  /** Field `afterRead` then collection `afterRead`. */
+  async function afterRead(collection: AnyCollection, doc: AnyDoc, draft: boolean, scope: OpScope): Promise<AnyDoc> {
+    if (!hasHooks(collection, "afterRead")) return doc;
+    const base = hookBase(collection, scope);
+    await runFieldHooks("afterRead", collection.fields, { base, data: doc, draft, originalDoc: null });
+    return runChainHooks(collection, "afterRead", "doc", doc, { ...base, draft });
+  }
+
+  /**
+   * `beforeValidate` hooks → validation → `beforeChange` hooks. Returns the data to store
+   * (trimmed to the schema when a `beforeChange` hook ran).
+   */
+  async function prepareWrite(
+    collection: AnyCollection,
+    scope: OpScope,
+    p: { operation: HookOperation; draft: boolean; input: unknown; originalDoc: AnyDoc | null; mode: ValidationMode },
+  ): Promise<AnyDoc> {
+    let input = p.input;
+    const run = { operation: p.operation, draft: p.draft, originalDoc: p.originalDoc };
+    if (hasHooks(collection, "beforeValidate") && isRecord(input)) {
+      const base = hookBase(collection, scope);
+      let data = cloneInput(input) as AnyDoc;
+      await runFieldHooks("beforeValidate", collection.fields, { base, data, ...run });
+      data = await runChainHooks(collection, "beforeValidate", "data", data, { ...base, ...run });
+      input = data;
+    }
+    let data = validate(collection, input, p.mode);
+    if (hasHooks(collection, "beforeChange")) {
+      const base = hookBase(collection, scope);
+      await runFieldHooks("beforeChange", collection.fields, { base, data, ...run });
+      data = await runChainHooks(collection, "beforeChange", "data", data, { ...base, ...run });
+      data = pruneToFields(collection.fields, data);
+    }
+    return data;
+  }
+
+  /** After a committed write (and `onChange`): `afterChange` hooks, then `afterRead` on the returned doc. */
+  async function finishWrite(
+    collection: AnyCollection,
+    scope: OpScope,
+    record: DocumentRecord,
+    p: { operation: HookOperation | "unpublish"; draft: boolean; previousDoc: AnyDoc | null },
+  ): Promise<AnyDoc> {
+    const doc = toDoc(collection, record, p.draft);
+    if (hasHooks(collection, "afterChange")) {
+      const base = hookBase(collection, scope);
+      const run = { operation: p.operation, draft: p.draft };
+      await runFieldHooks("afterChange", collection.fields, { base, data: doc, originalDoc: p.previousDoc, ...run });
+      await runEffectHooks(collection, "afterChange", { ...base, ...run, doc, previousDoc: p.previousDoc });
+    }
+    return afterRead(collection, doc, p.draft, scope);
+  }
+
+  /** Working-copy view of `record` for hooks, built only when some write hook will use it. */
+  function originalDocFor(collection: AnyCollection, record: DocumentRecord): AnyDoc | null {
+    const used = hasHooks(collection, "beforeValidate") || hasHooks(collection, "beforeChange") || hasHooks(collection, "afterChange");
+    return used ? toDoc(collection, record, true) : null;
   }
 
   function toDoc(collection: AnyCollection, record: DocumentRecord, draft: boolean): AnyDoc {
@@ -335,6 +471,7 @@ export function createXenon<Cfg extends XenonConfig>(
     docs: AnyDoc[],
     draft: boolean,
     modifiers: { select?: ReturnType<typeof validateSelect>; populate?: ReturnType<typeof validatePopulate>["spec"] },
+    scope: OpScope,
   ): Promise<AnyDoc[]> {
     if (modifiers.populate && docs.length) {
       await populateDocs({
@@ -345,9 +482,13 @@ export function createXenon<Cfg extends XenonConfig>(
         db: requireDb(),
         getCollection: (s) => collections.get(s),
         toDoc,
+        afterRead: (c, doc) => afterRead(c, doc, draft, scope),
       });
     }
-    return modifiers.select ? docs.map((d) => applySelect(d, modifiers.select!, modifiers.populate, true)) : docs;
+    const read = hasHooks(collection, "afterRead")
+      ? await Promise.all(docs.map((d) => afterRead(collection, d, draft, scope)))
+      : docs;
+    return modifiers.select ? read.map((d) => applySelect(d, modifiers.select!, modifiers.populate, true)) : read;
   }
 
   async function notifyGlobal(slug: string, id: string, op: "update" | "unpublish", draft = false) {
@@ -377,6 +518,7 @@ export function createXenon<Cfg extends XenonConfig>(
     async find(o) {
       await init();
       const collection = requireCollection(o.collection);
+      const scope = scopeOf(o);
       const draft = o.draft === true;
       await checkAccess(collection, "read", o, draft);
       const modifiers = await prepareReadModifiers(collection, o, draft);
@@ -393,6 +535,7 @@ export function createXenon<Cfg extends XenonConfig>(
         result.docs.map((r) => toDoc(collection, r, draft)),
         draft,
         modifiers,
+        scope,
       );
       return { ...result, docs } as never;
     },
@@ -400,12 +543,13 @@ export function createXenon<Cfg extends XenonConfig>(
     async findById(o) {
       await init();
       const collection = requireCollection(o.collection);
+      const scope = scopeOf(o);
       const draft = o.draft === true;
       await checkAccess(collection, "read", o, draft);
       const modifiers = await prepareReadModifiers(collection, o, draft);
       const record = await requireDb().findById(collection.slug, o.id);
       if (!record || (!draft && record.status !== "published")) return null;
-      const [doc] = await finalizeDocs(collection, [toDoc(collection, record, draft)], draft, modifiers);
+      const [doc] = await finalizeDocs(collection, [toDoc(collection, record, draft)], draft, modifiers, scope);
       return (doc ?? null) as never;
     },
 
@@ -419,16 +563,25 @@ export function createXenon<Cfg extends XenonConfig>(
         populate: o.populate as never,
         user: o.user,
         overrideAccess: o.overrideAccess,
-      });
+        context: o.context,
+        [HOOK_DEPTH]: (o as HookCall)[HOOK_DEPTH],
+      } as never);
       return (docs[0] ?? null) as never;
     },
 
     async create(o) {
       await init();
       const collection = requireCollection(o.collection);
+      const scope = scopeOf(o);
       await checkAccess(collection, "create", o);
       const asDraft = draftsEnabled(collection) && o.draft === true;
-      const data = validate(collection, o.data, asDraft ? "draft" : "create");
+      const data = await prepareWrite(collection, scope, {
+        operation: "create",
+        draft: asDraft,
+        input: o.data,
+        originalDoc: null,
+        mode: asDraft ? "draft" : "create",
+      });
 
       let stored: (PreparedUpload & { url: string }) | null = null;
       if (isUpload(collection)) {
@@ -437,29 +590,31 @@ export function createXenon<Cfg extends XenonConfig>(
         Object.assign(data, stored.meta, { url: stored.url, [FILE_KEY]: { key: stored.key } });
       }
 
+      let record: DocumentRecord;
       try {
         const nextSlug = () => uniqueSlug(collection, data);
         const manual = o.slug !== undefined && o.slug !== null;
         const slug = manual ? await manualSlug(collection, o.slug, undefined) : await nextSlug();
         withSlugMeta(data, { manual });
-        const record = await withSlugRetry(!manual && slug !== null, nextSlug, (slug) => requireDb().create({
+        record = await withSlugRetry(!manual && slug !== null, nextSlug, (slug) => requireDb().create({
           collection: collection.slug,
           slug,
           status: asDraft ? "draft" : "published",
           data: asDraft ? {} : data,
           draftData: asDraft ? data : null,
         }), slug).catch(conflict);
-        await notify(collection.slug, record.id, "create", asDraft);
-        return toDoc(collection, record, asDraft) as never;
       } catch (err) {
         if (stored) await requireStorage().delete(stored.key).catch(() => {});
         throw err;
       }
+      await notify(collection.slug, record.id, "create", asDraft);
+      return (await finishWrite(collection, scope, record, { operation: "create", draft: asDraft, previousDoc: null })) as never;
     },
 
     async update(o) {
       await init();
       const collection = requireCollection(o.collection);
+      const scope = scopeOf(o);
       await checkAccess(collection, "update", o);
       const existing = await getRecord(collection, o.id);
       const asDraft = draftsEnabled(collection) && o.draft === true;
@@ -476,7 +631,14 @@ export function createXenon<Cfg extends XenonConfig>(
       // Validate the merged document so required-field rules see the whole picture. Groups merge
       // recursively; stored data is first trimmed to the current schema (fields may have been removed).
       const merged = mergeUpdate(collection.fields, pruneToFields(collection.fields, working), o.data as AnyDoc);
-      const data = validate(collection, merged, asDraft ? "draft" : "create");
+      const originalDoc = originalDocFor(collection, existing);
+      const data = await prepareWrite(collection, scope, {
+        operation: "update",
+        draft: asDraft,
+        input: merged,
+        originalDoc,
+        mode: asDraft ? "draft" : "create",
+      });
 
       let stored: (PreparedUpload & { url: string }) | null = null;
       if (isUpload(collection)) {
@@ -517,8 +679,9 @@ export function createXenon<Cfg extends XenonConfig>(
         generated = !frozen && slug !== null;
         withSlugMeta(data, { pending: asDraft ? before.pending : undefined });
       }
+      let record: DocumentRecord;
       try {
-        const record = await withSlugRetry(generated, nextSlug, (slug) => requireDb().update(
+        const written = await withSlugRetry(generated, nextSlug, (slug) => requireDb().update(
           collection.slug,
           existing.id,
           asDraft
@@ -526,47 +689,58 @@ export function createXenon<Cfg extends XenonConfig>(
             : { slug, data, draftData: null, status: "published" },
           ifUpdatedAt ? { ifUpdatedAt } : undefined,
         ), slug).catch(conflict);
-        if (!record) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
-        if (stored) {
-          const oldKey = storageKeyOf(existing);
-          if (oldKey) await requireStorage().delete(oldKey).catch(() => {});
-        }
-        await notify(collection.slug, record.id, "update", asDraft);
-        return toDoc(collection, record, asDraft) as never;
+        if (!written) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
+        record = written;
       } catch (err) {
         if (stored) await requireStorage().delete(stored.key).catch(() => {});
         throw err;
       }
+      if (stored) {
+        const oldKey = storageKeyOf(existing);
+        if (oldKey) await requireStorage().delete(oldKey).catch(() => {});
+      }
+      await notify(collection.slug, record.id, "update", asDraft);
+      return (await finishWrite(collection, scope, record, { operation: "update", draft: asDraft, previousDoc: originalDoc })) as never;
     },
 
     async unpublish(o) {
       await init();
       const collection = requireCollection(o.collection);
+      const scope = scopeOf(o);
       await checkAccess(collection, "update", o);
       if (!draftsEnabled(collection)) {
         throw new XenonError("BAD_REQUEST", `"${collection.slug}" does not use drafts.`);
       }
       const existing = await getRecord(collection, o.id);
+      const previousDoc = originalDocFor(collection, existing);
       const record = await requireDb().update(collection.slug, existing.id, {
         status: "draft",
         draftData: existing.draftData ?? existing.data,
       });
       if (!record) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
       await notify(collection.slug, record.id, "unpublish");
-      return toDoc(collection, record, true) as never;
+      return (await finishWrite(collection, scope, record, { operation: "unpublish", draft: true, previousDoc })) as never;
     },
 
     async delete(o) {
       await init();
       const collection = requireCollection(o.collection);
+      const scope = scopeOf(o);
       await checkAccess(collection, "delete", o);
       const existing = await getRecord(collection, o.id);
+      const doc = toDoc(collection, existing, true);
+      if (hasHooks(collection, "beforeDelete")) {
+        await runEffectHooks(collection, "beforeDelete", { ...hookBase(collection, scope), id: existing.id, doc });
+      }
       const deleted = await requireDb().delete(collection.slug, existing.id);
       if (!deleted) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
       const key = storageKeyOf(existing);
       if (key && config.storage) await config.storage.delete(key).catch(() => {});
       await notify(collection.slug, existing.id, "delete");
-      return toDoc(collection, existing, true) as never;
+      if (hasHooks(collection, "afterDelete")) {
+        await runEffectHooks(collection, "afterDelete", { ...hookBase(collection, scope), id: existing.id, doc });
+      }
+      return (await afterRead(collection, doc, true, scope)) as never;
     },
 
     getCollection: (slug) => collections.get(slug),
@@ -656,6 +830,7 @@ export function createXenon<Cfg extends XenonConfig>(
     async completeUpload(o) {
       await init();
       const collection = requireCollection(o.collection);
+      const scope = scopeOf(o);
       if (!isUpload(collection)) {
         throw new XenonError("BAD_REQUEST", `Collection "${collection.slug}" does not support uploads.`);
       }
@@ -709,13 +884,21 @@ export function createXenon<Cfg extends XenonConfig>(
         payload.mimeType,
       );
 
+      let record: DocumentRecord;
+      let previousDoc: AnyDoc | null = null;
       try {
         if (targetId === undefined) {
-          const data = validate(collection, o.data, "create");
+          const data = await prepareWrite(collection, scope, {
+            operation: "create",
+            draft: false,
+            input: o.data,
+            originalDoc: null,
+            mode: "create",
+          });
           Object.assign(data, verified.meta, { url: verified.url, [FILE_KEY]: { key: verified.key } });
           const nextSlug = () => uniqueSlug(collection, data);
           const slug = await nextSlug();
-          const record = await withSlugRetry(
+          record = await withSlugRetry(
             slug !== null,
             nextSlug,
             (s) => requireDb().create({
@@ -727,46 +910,53 @@ export function createXenon<Cfg extends XenonConfig>(
             }),
             slug,
           ).catch(conflict);
-          await notify(collection.slug, record.id, "create", false);
-          return toDoc(collection, record, false) as never;
+        } else {
+          const existing = await getRecord(collection, targetId);
+          const ifUpdatedAt = expectedVersion(o.expectedUpdatedAt);
+          if (ifUpdatedAt && existing.updatedAt.getTime() !== ifUpdatedAt.getTime()) throw staleError();
+          if (typeof o.data !== "object" || o.data === null || Array.isArray(o.data)) {
+            throw new XenonError("VALIDATION", "The submitted data is invalid.", [
+              { path: [], message: "Expected an object" },
+            ]);
+          }
+          const merged = mergeUpdate(collection.fields, pruneToFields(collection.fields, existing.draftData ?? existing.data), o.data as AnyDoc);
+          previousDoc = originalDocFor(collection, existing);
+          const data = await prepareWrite(collection, scope, {
+            operation: "update",
+            draft: false,
+            input: merged,
+            originalDoc: previousDoc,
+            mode: "create",
+          });
+          Object.assign(data, verified.meta, { url: verified.url, [FILE_KEY]: { key: verified.key } });
+          const before = slugMetaOf(existing.draftData ?? existing.data);
+          const frozen = (wasPublished(existing) && existing.slug !== null) || before.manual;
+          if (before.manual) withSlugMeta(data, { manual: true });
+          const nextSlug = () => uniqueSlug(collection, data, existing.id);
+          const slug = frozen ? existing.slug : await nextSlug();
+          const written = await withSlugRetry(
+            !frozen && slug !== null,
+            nextSlug,
+            (s) => requireDb().update(
+              collection.slug,
+              existing.id,
+              { slug: s, data, draftData: null, status: "published" },
+              ifUpdatedAt ? { ifUpdatedAt } : undefined,
+            ),
+            slug,
+          ).catch(conflict);
+          if (!written) throw new XenonError("NOT_FOUND", `Document "${targetId}" not found in "${collection.slug}".`);
+          record = written;
+          const oldKey = storageKeyOf(existing);
+          if (oldKey && oldKey !== verified.key) await storage.delete(oldKey).catch(() => {});
         }
-
-        const existing = await getRecord(collection, targetId);
-        const ifUpdatedAt = expectedVersion(o.expectedUpdatedAt);
-        if (ifUpdatedAt && existing.updatedAt.getTime() !== ifUpdatedAt.getTime()) throw staleError();
-        if (typeof o.data !== "object" || o.data === null || Array.isArray(o.data)) {
-          throw new XenonError("VALIDATION", "The submitted data is invalid.", [
-            { path: [], message: "Expected an object" },
-          ]);
-        }
-        const merged = mergeUpdate(collection.fields, pruneToFields(collection.fields, existing.draftData ?? existing.data), o.data as AnyDoc);
-        const data = validate(collection, merged, "create");
-        Object.assign(data, verified.meta, { url: verified.url, [FILE_KEY]: { key: verified.key } });
-        const before = slugMetaOf(existing.draftData ?? existing.data);
-        const frozen = (wasPublished(existing) && existing.slug !== null) || before.manual;
-        if (before.manual) withSlugMeta(data, { manual: true });
-        const nextSlug = () => uniqueSlug(collection, data, existing.id);
-        const slug = frozen ? existing.slug : await nextSlug();
-        const record = await withSlugRetry(
-          !frozen && slug !== null,
-          nextSlug,
-          (s) => requireDb().update(
-            collection.slug,
-            existing.id,
-            { slug: s, data, draftData: null, status: "published" },
-            ifUpdatedAt ? { ifUpdatedAt } : undefined,
-          ),
-          slug,
-        ).catch(conflict);
-        if (!record) throw new XenonError("NOT_FOUND", `Document "${targetId}" not found in "${collection.slug}".`);
-        const oldKey = storageKeyOf(existing);
-        if (oldKey && oldKey !== verified.key) await storage.delete(oldKey).catch(() => {});
-        await notify(collection.slug, record.id, "update", false);
-        return toDoc(collection, record, false) as never;
       } catch (err) {
         await storage.delete(verified.key).catch(() => {});
         throw err;
       }
+      const operation = targetId === undefined ? "create" : "update";
+      await notify(collection.slug, record.id, operation, false);
+      return (await finishWrite(collection, scope, record, { operation, draft: false, previousDoc })) as never;
     },
   };
 
