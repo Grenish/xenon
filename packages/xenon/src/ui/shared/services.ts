@@ -26,6 +26,27 @@ export interface AdminDoc {
   slugManual?: boolean;
   /** Field values of the working copy (+ upload metadata for upload collections). */
   data: Record<string, unknown>;
+  /** Scheduled publish of the working copy (ISO), if any (#16). */
+  publishAt?: string | null;
+  /** Scheduled unpublish (ISO), if any (#16). */
+  unpublishAt?: string | null;
+}
+
+/** One saved version of a document, as the history drawer shows it (#15). */
+export interface AdminVersion {
+  id: string;
+  kind: "publish" | "draft" | "restore";
+  createdAt: string;
+  author: { id: string; name: string | null; email: string | null } | null;
+  /** Field values of the version (read with current defaults). */
+  data: Record<string, unknown>;
+}
+
+export interface AdminVersionPage {
+  docs: AdminVersion[];
+  totalDocs: number;
+  page: number;
+  hasNextPage: boolean;
 }
 
 /** Lightweight row for lists, pickers and relation chips. */
@@ -77,10 +98,17 @@ export interface PreviewInfo {
 export interface AdminServices {
   /** Create (no `id`) or update. `draft: true` = save draft, otherwise publish. */
   /** `slug`: a string sets it by hand, `null` switches back to automatic, omitted leaves it alone. */
-  save(input: { collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string; slug?: string | null }): Promise<ActionResult<AdminDoc>>;
+  /** `autosave`: a background draft save (no version is recorded). */
+  save(input: { collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string; slug?: string | null; autosave?: boolean }): Promise<ActionResult<AdminDoc>>;
   /** Fresh copy of one document (after someone else saved it). */
   get(input: { collection: string; id: string }): Promise<ActionResult<AdminDoc>>;
   unpublish(input: { collection: string; id: string }): Promise<ActionResult<AdminDoc>>;
+  /** A document's versions, newest first. */
+  versions(input: { collection: string; id: string; page?: number }): Promise<ActionResult<AdminVersionPage>>;
+  /** Restore a version as the document's draft (publishes it when the collection has no drafts). */
+  restoreVersion(input: { collection: string; id: string; versionId: string; expectedUpdatedAt?: string }): Promise<ActionResult<AdminDoc>>;
+  /** Set (ISO string) or clear (`null`) a scheduled publish / unpublish; omitted keys stay as they are. */
+  schedule(input: { collection: string; id: string; publishAt?: string | null; unpublishAt?: string | null }): Promise<ActionResult<AdminDoc>>;
   remove(input: { collection: string; id: string }): Promise<ActionResult<{ id: string }>>;
   search(input: SearchInput): Promise<ActionResult<SearchResult>>;
   /** Upload to an upload collection (create, or replace the file when `id` is given). */

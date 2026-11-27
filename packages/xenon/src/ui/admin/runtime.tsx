@@ -4,7 +4,7 @@ import type { AdminActionInput, AdminActionResult } from "../../http/admin-actio
 import type { AdminRouteData } from "../../http/admin-loader";
 import { toPlainJson } from "../shared/plain";
 import { useAdminRouter } from "../shared/router";
-import type { ActionResult, AdminDoc, AdminServices, PreviewInfo, SearchResult } from "../shared/services";
+import type { ActionResult, AdminDoc, AdminServices, AdminVersionPage, PreviewInfo, SearchResult } from "../shared/services";
 
 import { type AdminTheme, themeStore, useAdminTheme } from "./theme-store";
 
@@ -147,8 +147,12 @@ export function useServices(): AdminServices {
   const router = useAdminRouter();
   return useMemo<AdminServices>(
     () => ({
-      save: (input) => run<AdminDoc>({ type: "doc.save", ...input }, { refresh: true }),
+      // Autosaves don't refresh server-rendered views (they'd re-render every few seconds while typing).
+      save: (input) => run<AdminDoc>({ type: "doc.save", ...input }, { refresh: !input.autosave }),
       unpublish: (input) => run<AdminDoc>({ type: "doc.unpublish", ...input }, { refresh: true }),
+      versions: (input) => run<AdminVersionPage>({ type: "doc.versions", ...input }),
+      restoreVersion: (input) => run<AdminDoc>({ type: "doc.restoreVersion", ...input }, { refresh: true }),
+      schedule: (input) => run<AdminDoc>({ type: "doc.schedule", ...input }, { refresh: true }),
       remove: (input) => run<{ id: string }>({ type: "doc.remove", ...input }, { refresh: true }),
       get: (input) => run<AdminDoc>({ type: "doc.get", ...input }),
       search: (input) => run<SearchResult>({ type: "doc.search", ...input }),

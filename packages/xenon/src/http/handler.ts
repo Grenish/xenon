@@ -28,6 +28,7 @@ import {
   matchesIfNoneMatch,
   PRIVATE_NO_STORE,
 } from "./cache";
+import { handleCronRoute, handleEditorialRoute, isEditorialRoute } from "./editorial";
 import { parseDraft, parseQuery, parseReadQuery } from "./query";
 
 export interface CreateHandlerOptions<Cfg extends XenonConfig = XenonConfig> {
@@ -563,6 +564,19 @@ export async function handleApiSegments(
         default:
           throw new XenonError("NOT_FOUND", "Route not found.");
       }
+    }
+
+    if (slug === "_cron") {
+      noStoreOnError = true;
+      return await handleCronRoute(request, segments, config, xenon, () => requireTrustedOrigin(request, config));
+    }
+    if (slug && id && isEditorialRoute(segments) && xenon.getCollection(slug)) {
+      noStoreOnError = true;
+      const user = await xenon.getUser(request.headers);
+      if (request.method !== "GET" && user && !/^Bearer\s+.+$/i.test(request.headers.get("authorization") ?? "")) {
+        requireTrustedOrigin(request, config);
+      }
+      return await handleEditorialRoute(request, segments, xenon, { user, ifMatch: parseIfMatch(request) });
     }
 
     const collection = slug ? xenon.getCollection(slug) : undefined;

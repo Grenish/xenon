@@ -1,10 +1,11 @@
 import type { BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { and, count, eq, gte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import {
   type CollectionSummary,
   type CreateRecordInput,
+  type CreateVersionInput,
   type DatabaseAdapter,
   type DatabaseInitOptions,
   type DocumentRecord,
@@ -18,10 +19,11 @@ import {
   type UpdateRecordOptions,
   UniqueConflictError,
   UpdateConflictError,
+  type VersionRecord,
 } from "../types";
 import { fallbackSearchText } from "../search";
 import { authDDL, authDrizzleSchema } from "./auth-schema";
-import { DOCUMENTS_DDL, xenonDocuments as t } from "./schema";
+import { DOCUMENTS_DDL, xenonDocuments as t, xenonVersions as v } from "./schema";
 import { compileSearchFilter, compileSearchQuery, compileSearchRankOrder } from "./search";
 import { compileOrderBy, compileWhere, pgStringLiteral } from "./where";
 
@@ -186,9 +188,10 @@ function extractUniqueViolation(err: unknown): { constraint?: string; detail?: s
 }
 
 type Row = typeof t.$inferSelect;
+type VersionRow = typeof v.$inferSelect;
 
 function toRecord(row: Row): DocumentRecord {
-  return {
+  const record: DocumentRecord = {
     id: row.id,
     collection: row.collection,
     slug: row.slug,
@@ -197,6 +200,23 @@ function toRecord(row: Row): DocumentRecord {
     draftData: row.draftData ? structuredClone(row.draftData) : null,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),
+  };
+  // Schedule columns are returned only when set (records without a schedule keep their old shape).
+  if (row.publishAt) record.publishAt = new Date(row.publishAt);
+  if (row.unpublishAt) record.unpublishAt = new Date(row.unpublishAt);
+  return record;
+}
+
+function toVersion(row: VersionRow): VersionRecord {
+  return {
+    id: row.id,
+    collection: row.collection,
+    documentId: row.documentId,
+    kind: row.kind,
+    slug: row.slug,
+    data: structuredClone(row.data ?? {}),
+    author: row.author ? structuredClone(row.author) : null,
+    createdAt: new Date(row.createdAt),
   };
 }
 
@@ -308,7 +328,12 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
         collectionFilter,
         compileWhere(args.where, args.source, indexedFields),
       ];
-      if (args.source === "published") filters.push(sql`${t.status} = 'published'`);
+      if (args.source === "published") {
+        filters.push(sql`${t.status} = 'published'`);
+        // Scheduled unpublish takes effect at query time, even if the cron run is late.
+        const now = (args.now ?? new Date()).toISOString();
+        filters.push(sql`(${t.unpublishAt} is null or ${t.unpublishAt} > ${now}::timestamptz)`);
+      }
       const searchQuery = compileSearchQuery(args.search);
       if (searchQuery) filters.push(compileSearchFilter(args.source, searchQuery));
       const condition = and(...filters);
@@ -362,6 +387,8 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
             status: input.status,
             data: input.data,
             draftData: input.draftData,
+            publishAt: input.publishAt ?? null,
+            unpublishAt: input.unpublishAt ?? null,
             createdAt: now,
             updatedAt: now,
             searchVector: sql`to_tsvector('simple', ${liveText})` as unknown as string,
@@ -379,6 +406,8 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
         if (input.status !== undefined) set.status = input.status;
         if (input.data !== undefined) set.data = input.data;
         if (input.draftData !== undefined) set.draftData = input.draftData;
+        if (input.publishAt !== undefined) set.publishAt = input.publishAt;
+        if (input.unpublishAt !== undefined) set.unpublishAt = input.unpublishAt;
         if (input.searchText !== undefined) {
           set.searchVector = sql`to_tsvector('simple', ${input.searchText ?? ""})` as unknown as string;
         } else if (input.data !== undefined) {
@@ -419,6 +448,81 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
         .where(and(eq(t.collection, collection), eq(t.id, id)))
         .returning({ id: t.id });
       return rows.length > 0;
+    },
+
+    async createVersion(input: CreateVersionInput): Promise<VersionRecord> {
+      const now = new Date().toISOString();
+      // Strictly increasing per document (1 ms past the newest), so versions order without ties.
+      const createdAt = sql`greatest(${now}::timestamptz, coalesce((
+        select max(${v.createdAt}) + interval '1 millisecond' from ${v}
+        where ${v.collection} = ${input.collection} and ${v.documentId} = ${input.documentId}
+      ), ${now}::timestamptz))`;
+      const [row] = await db()
+        .insert(v)
+        .values({
+          id: crypto.randomUUID(),
+          collection: input.collection,
+          documentId: input.documentId,
+          kind: input.kind,
+          slug: input.slug,
+          data: input.data,
+          author: input.author,
+          createdAt: createdAt as unknown as Date,
+        })
+        .returning();
+      return toVersion(row as VersionRow);
+    },
+
+    async findVersions({ collection, documentId, limit: rawLimit, page: rawPage }) {
+      const limit = Math.max(0, Math.floor(rawLimit ?? 10));
+      const page = Math.max(1, Math.floor(rawPage ?? 1));
+      const condition = and(eq(v.collection, collection), eq(v.documentId, documentId));
+      const [{ total } = { total: 0 }] = await db().select({ total: count() }).from(v).where(condition);
+      let query = db().select().from(v).where(condition).orderBy(desc(v.createdAt), desc(v.id)).$dynamic();
+      if (limit > 0) query = query.limit(limit).offset((page - 1) * limit);
+      const rows = limit === 0 && page > 1 ? [] : ((await query) as VersionRow[]);
+      const totalDocs = Number(total);
+      const totalPages = limit === 0 ? 1 : Math.max(1, Math.ceil(totalDocs / limit));
+      return {
+        docs: rows.map(toVersion),
+        totalDocs,
+        limit,
+        page,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      };
+    },
+
+    async findVersionById(collection, id) {
+      const [row] = await db().select().from(v).where(and(eq(v.collection, collection), eq(v.id, id))).limit(1);
+      return row ? toVersion(row as VersionRow) : null;
+    },
+
+    async deleteVersions(collection, documentId, options) {
+      const keep = Math.max(0, Math.floor(options?.keep ?? 0));
+      const condition = and(eq(v.collection, collection), eq(v.documentId, documentId));
+      const doomed = keep > 0
+        ? inArray(
+          v.id,
+          db().select({ id: v.id }).from(v).where(condition).orderBy(desc(v.createdAt), desc(v.id)).offset(keep),
+        )
+        : undefined;
+      const rows = await db().delete(v).where(doomed ? and(condition, doomed) : condition).returning({ id: v.id });
+      return rows.length;
+    },
+
+    async findDue({ now, limit }) {
+      const at = now.toISOString();
+      const publishDue = and(isNotNull(t.publishAt), lte(t.publishAt, sql`${at}::timestamptz`));
+      const unpublishDue = and(isNotNull(t.unpublishAt), lte(t.unpublishAt, sql`${at}::timestamptz`), eq(t.status, "published"));
+      const dueAt = sql`least(
+        ${t.publishAt},
+        case when ${t.status} = 'published' then ${t.unpublishAt} end
+      )`;
+      let query = db().select().from(t).where(or(publishDue, unpublishDue)).orderBy(asc(dueAt), sql`${t.id} collate "C" asc`).$dynamic();
+      if (limit > 0) query = query.limit(limit);
+      return ((await query) as Row[]).map(toRecord);
     },
 
     async summarize(args: SummarizeArgs): Promise<CollectionSummary> {

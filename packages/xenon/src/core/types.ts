@@ -342,6 +342,12 @@ export type TextFieldKeys<Fs extends FieldsMap> = {
 }[keyof Fs] &
   string;
 
+/**
+ * Admin draft autosave (#15): while an editor types, the working copy is saved as a draft after
+ * `interval` ms without changes (default 2000). Needs drafts. Autosaves never create versions.
+ */
+export type AutosaveOption = boolean | { interval?: number };
+
 export interface CollectionAdminOptions<
   Fs extends FieldsMap = FieldsMap,
   Doc = Record<string, unknown>,
@@ -350,9 +356,16 @@ export interface CollectionAdminOptions<
   defaultColumns?: readonly ((keyof Fs & string) | SystemKey)[];
   group?: string;
   description?: string;
+  autosave?: AutosaveOption;
   /** Returns the preview URL for a document (relative path or trusted-origin URL), or nullish if not previewable. Server-only. */
   previewUrl?: (doc: Doc) => string | null | undefined;
 }
+
+/**
+ * Version history (#15). `true` keeps the newest 50 versions per document; `max` changes that.
+ * A version is saved on every publish, manual draft save and restore. Not for upload collections.
+ */
+export type VersionsOption = boolean | { max?: number };
 
 export interface CollectionConfig<
   Slug extends string = string,
@@ -366,6 +379,8 @@ export interface CollectionConfig<
   slugFrom?: TextFieldKeys<Fs>;
   /** Draft / publish workflow. Default `true`. */
   drafts?: boolean;
+  /** Version history (see `VersionsOption`). Default `false`. */
+  versions?: VersionsOption;
   /** Turns this into an upload (media) collection. */
   upload?: Up;
   admin?: CollectionAdminOptions<Fs, CollectionHookDoc<Fs, Up>>;
@@ -389,12 +404,14 @@ export interface AnyCollection {
   fields: FieldsMap;
   slugFrom?: string;
   drafts?: boolean;
+  versions?: VersionsOption;
   upload?: boolean | UploadOptions;
   admin?: {
     useAsTitle?: string;
     defaultColumns?: readonly string[];
     group?: string;
     description?: string;
+    autosave?: AutosaveOption;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     previewUrl?: (doc: any) => string | null | undefined;
   };
@@ -433,6 +450,13 @@ export interface XenonConfigInput<
    * traffic). `false` turns it off; a custom store shares presence across server instances.
    */
   presence?: PresenceStore | false;
+  /**
+   * Scheduled publishing (#16): `POST|GET {api}/_cron/publish` runs due publishes and unpublishes.
+   * Callers authenticate with `Authorization: Bearer <secret>` (or an admin session / admin API
+   * key). Default secret: `process.env.XENON_CRON_SECRET`, then `process.env.CRON_SECRET` (the
+   * variable Vercel Cron sends).
+   */
+  cron?: { secret?: string };
 }
 
 export interface XenonConfig<

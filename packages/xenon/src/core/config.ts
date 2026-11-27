@@ -2,6 +2,7 @@ import type { AnyGlobal } from "./global";
 import { validateGlobalsConfig } from "./global";
 import type { AnyCollection, Field, XenonConfig, XenonConfigInput } from "./types";
 import { SYSTEM_KEYS, UPLOAD_KEYS } from "./types";
+import { MIN_AUTOSAVE_INTERVAL } from "./collection";
 import { CONDITION_OPERATORS } from "./condition";
 import { COLLECTION_HOOK_NAMES, FIELD_HOOK_NAMES } from "./hooks";
 import { isJsonValue, selectOptionValues, validateFieldValue } from "./validation";
@@ -229,6 +230,41 @@ function validateCollection(c: AnyCollection, bySlug: Map<string, AnyCollection>
   if (c.admin?.previewUrl !== undefined && typeof c.admin.previewUrl !== "function") {
     fail(slug, null, `admin.previewUrl must be a function.`);
   }
+  validateVersioning(c);
+}
+
+function validateVersioning(c: AnyCollection): void {
+  const slug = c.slug;
+  const versions = c.versions as unknown;
+  if (versions !== undefined && typeof versions !== "boolean") {
+    if (typeof versions !== "object" || versions === null || Array.isArray(versions)) {
+      fail(slug, null, "versions must be a boolean or { max?: number }.");
+    }
+    for (const key of Object.keys(versions)) {
+      if (key !== "max") fail(slug, null, `unknown versions option "${key}".`);
+    }
+    const max = (versions as { max?: unknown }).max;
+    if (max !== undefined && (typeof max !== "number" || !Number.isInteger(max) || max < 1)) {
+      fail(slug, null, "versions.max must be a positive integer.");
+    }
+  }
+  if (versions && isUploadCollection(c)) fail(slug, null, "versions are not supported on upload collections.");
+
+  const autosave = c.admin?.autosave as unknown;
+  if (autosave === undefined || autosave === false) return;
+  if (autosave !== true) {
+    if (typeof autosave !== "object" || autosave === null || Array.isArray(autosave)) {
+      fail(slug, null, "admin.autosave must be a boolean or { interval?: number }.");
+    }
+    for (const key of Object.keys(autosave)) {
+      if (key !== "interval") fail(slug, null, `unknown admin.autosave option "${key}".`);
+    }
+    const interval = (autosave as { interval?: unknown }).interval;
+    if (interval !== undefined && (typeof interval !== "number" || !Number.isInteger(interval) || interval < MIN_AUTOSAVE_INTERVAL)) {
+      fail(slug, null, `admin.autosave.interval must be an integer of at least ${MIN_AUTOSAVE_INTERVAL} (ms).`);
+    }
+  }
+  if (c.drafts === false || isUploadCollection(c)) fail(slug, null, "admin.autosave needs drafts (it saves drafts).");
 }
 
 /**

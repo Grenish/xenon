@@ -14,6 +14,8 @@ import type { AnyCollection, Field, XenonConfig, XenonUser } from "../core/types
 import { UPLOAD_KEYS } from "../core/types";
 import { type ValidationMode, validateCollectionData } from "../core/validation";
 import { createGlobalMethods } from "./globals";
+import { createScheduleMethods, isLive } from "./schedule";
+import { assertVersionSupport, createVersionMethods, RESTORE_VERSION, snapshotVersion } from "./versions";
 import {
   hasHooks,
   MAX_HOOK_DEPTH,
@@ -59,6 +61,11 @@ const SCOPED_METHODS = [
   "delete",
   "presignUpload",
   "completeUpload",
+  "findVersions",
+  "findVersionById",
+  "restoreVersion",
+  "getSchedule",
+  "schedule",
 ] as const;
 
 /** Per-call hook state: one shared `context`, and a lazily built hook-facing `xenon`. */
@@ -138,6 +145,17 @@ function wasPublished(record: DocumentRecord): boolean {
   return record.status === "published" || Object.keys(record.data).length > 0;
 }
 
+/**
+ * Schedule columns a publish resets: the pending publish it fulfils, and an unpublish time that
+ * has already passed (it would hide the document again at once).
+ */
+function clearedOnPublish(existing: DocumentRecord): { publishAt?: null; unpublishAt?: null } {
+  const out: { publishAt?: null; unpublishAt?: null } = {};
+  if (existing.publishAt) out.publishAt = null;
+  if (existing.unpublishAt && existing.unpublishAt.getTime() <= Date.now()) out.unpublishAt = null;
+  return out;
+}
+
 export function createXenon<Cfg extends XenonConfig>(
   config: Cfg,
   options: CreateXenonInternalOptions = {},
@@ -172,6 +190,7 @@ export function createXenon<Cfg extends XenonConfig>(
 
   async function init(): Promise<void> {
     initPromise ??= (async () => {
+      assertVersionSupport(config);
       await requireDb().init(fieldIndexes.length ? { indexes: fieldIndexes } : undefined);
     })().catch((err) => {
       initPromise = null;
@@ -511,10 +530,38 @@ export function createXenon<Cfg extends XenonConfig>(
     notifyGlobal,
   });
 
+  const versionMethods = createVersionMethods({
+    init,
+    requireDb,
+    requireCollection,
+    checkAccess,
+    toDoc,
+    afterRead: (collection, doc, ctx) => afterRead(collection, doc, true, scopeOf(ctx)),
+    draftsEnabled,
+    update: (o) => api.update(o as never) as Promise<AnyDoc>,
+  });
+
+  const scheduleMethods = createScheduleMethods({
+    init,
+    requireDb,
+    requireCollection,
+    getCollection: (slug) => collections.get(slug),
+    checkAccess,
+    draftsEnabled,
+    update: (o) => api.update(o as never),
+    unpublish: (o) => api.unpublish(o as never),
+  });
+
   const api: XenonInstance<XenonConfig> = {
     config,
     init,
     ...globalMethods,
+    ...versionMethods,
+    ...scheduleMethods,
+
+    get supportsScheduling() {
+      return typeof config.db?.findDue === "function";
+    },
 
     async find(o) {
       await init();
@@ -550,7 +597,7 @@ export function createXenon<Cfg extends XenonConfig>(
       await checkAccess(collection, "read", o, draft);
       const modifiers = await prepareReadModifiers(collection, o, draft);
       const record = await requireDb().findById(collection.slug, o.id);
-      if (!record || (!draft && record.status !== "published")) return null;
+      if (!record || (!draft && !isLive(record))) return null;
       const [doc] = await finalizeDocs(collection, [toDoc(collection, record, draft)], draft, modifiers, scope);
       return (doc ?? null) as never;
     },
@@ -610,6 +657,7 @@ export function createXenon<Cfg extends XenonConfig>(
         if (stored) await requireStorage().delete(stored.key).catch(() => {});
         throw err;
       }
+      await snapshotVersion(requireDb(), collection, record, asDraft ? "draft" : "publish", scope.user);
       await notify(collection.slug, record.id, "create", asDraft);
       return (await finishWrite(collection, scope, record, { operation: "create", draft: asDraft, previousDoc: null })) as never;
     },
@@ -689,7 +737,7 @@ export function createXenon<Cfg extends XenonConfig>(
           existing.id,
           asDraft
             ? { slug, draftData: data, ...updateSearchInput(collection, data, slug, true) }
-            : { slug, data, draftData: null, status: "published", ...updateSearchInput(collection, data, slug, false) },
+            : { slug, data, draftData: null, status: "published", ...clearedOnPublish(existing), ...updateSearchInput(collection, data, slug, false) },
           ifUpdatedAt ? { ifUpdatedAt } : undefined,
         ), slug).catch(conflict);
         if (!written) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
@@ -702,6 +750,8 @@ export function createXenon<Cfg extends XenonConfig>(
         const oldKey = storageKeyOf(existing);
         if (oldKey) await requireStorage().delete(oldKey).catch(() => {});
       }
+      const kind = (o as { [RESTORE_VERSION]?: boolean })[RESTORE_VERSION] ? "restore" : asDraft ? (o.autosave ? null : "draft") : "publish";
+      if (kind) await snapshotVersion(requireDb(), collection, record, kind, scope.user);
       await notify(collection.slug, record.id, "update", asDraft);
       return (await finishWrite(collection, scope, record, { operation: "update", draft: asDraft, previousDoc: originalDoc })) as never;
     },
@@ -719,6 +769,7 @@ export function createXenon<Cfg extends XenonConfig>(
       const record = await requireDb().update(collection.slug, existing.id, {
         status: "draft",
         draftData: existing.draftData ?? existing.data,
+        ...(existing.unpublishAt ? { unpublishAt: null } : {}),
         draftSearchText: searchTextFor(collection, existing.draftData ?? existing.data, existing.slug),
       });
       if (!record) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
@@ -740,6 +791,7 @@ export function createXenon<Cfg extends XenonConfig>(
       if (!deleted) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
       const key = storageKeyOf(existing);
       if (key && config.storage) await config.storage.delete(key).catch(() => {});
+      await requireDb().deleteVersions?.(collection.slug, existing.id);
       await notify(collection.slug, existing.id, "delete");
       if (hasHooks(collection, "afterDelete")) {
         await runEffectHooks(collection, "afterDelete", { ...hookBase(collection, scope), id: existing.id, doc });

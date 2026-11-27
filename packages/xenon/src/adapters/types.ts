@@ -21,6 +21,16 @@ export interface DocumentRecord {
   draftData: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * Scheduled publish of the working copy (#16). Absent (or `null`) when nothing is scheduled.
+   * Adapters that implement `findDue` must store it and return it only when set.
+   */
+  publishAt?: Date | null;
+  /**
+   * Scheduled unpublish (#16). Absent (or `null`) when nothing is scheduled. Published reads
+   * (`source: "published"`) exclude rows whose `unpublishAt` is at or before `FindArgs.now`.
+   */
+  unpublishAt?: Date | null;
 }
 
 export interface WhereOperators {
@@ -61,6 +71,11 @@ export interface FindArgs {
   limit?: number;
   /** 1-based. Default 1. */
   page?: number;
+  /**
+   * Reference instant for the scheduled-unpublish guard on `published` reads (rows with
+   * `unpublishAt <= now` are excluded). Default: the current time.
+   */
+  now?: Date;
 }
 
 export interface PaginatedResult<T> {
@@ -79,6 +94,10 @@ export interface CreateRecordInput {
   status: DocumentStatus;
   data: Record<string, unknown>;
   draftData: Record<string, unknown> | null;
+  /** `null` clears a schedule. */
+  publishAt?: Date | null;
+  /** `null` clears a schedule. */
+  unpublishAt?: Date | null;
   /** Precomputed searchable plain text for live `data` (indexed into `search_vector`). */
   searchText?: string | null;
   /** Precomputed searchable plain text for pending `draftData` (`null` when no draft exists). */
@@ -86,6 +105,51 @@ export interface CreateRecordInput {
 }
 
 export type UpdateRecordInput = Partial<Omit<CreateRecordInput, "collection">>;
+
+/* ------------------------------- Versions (#15) ------------------------------ */
+
+/** What produced a version snapshot. */
+export type VersionKind = "publish" | "draft" | "restore";
+
+/** Who saved a version (copied at write time, so it survives the user being removed). */
+export interface VersionAuthor {
+  id: string;
+  name: string | null;
+  email: string | null;
+}
+
+/** A row of `xenon_versions`: a full copy of a document's stored data at one point in time. */
+export interface VersionRecord {
+  id: string;
+  collection: string;
+  documentId: string;
+  kind: VersionKind;
+  /** The document's slug when the snapshot was taken. */
+  slug: string | null;
+  /** The stored data that was written (live data for `publish`, working copy otherwise). */
+  data: Record<string, unknown>;
+  author: VersionAuthor | null;
+  /** Strictly increasing per document, so it orders versions without ties. */
+  createdAt: Date;
+}
+
+export type CreateVersionInput = Omit<VersionRecord, "id" | "createdAt">;
+
+export interface FindVersionsArgs {
+  collection: string;
+  documentId: string;
+  /** Default 10. `0` = no limit. */
+  limit?: number;
+  /** 1-based. Default 1. */
+  page?: number;
+}
+
+export interface FindDueArgs {
+  /** Rows due at or before this instant. */
+  now: Date;
+  /** Maximum rows to return (oldest due first). */
+  limit: number;
+}
 
 export interface UpdateRecordOptions {
   /**
@@ -210,6 +274,28 @@ export interface DatabaseAdapter {
    * document). When absent, Xenon computes the same figures with `summarizeRecords` over `find`.
    */
   summarize?(args: SummarizeArgs): Promise<CollectionSummary>;
+
+  /*
+   * Version history (#15). Optional: collections with `versions` enabled need an adapter that
+   * implements all four. Versions are listed newest first.
+   */
+  createVersion?(input: CreateVersionInput): Promise<VersionRecord>;
+  findVersions?(args: FindVersionsArgs): Promise<PaginatedResult<VersionRecord>>;
+  findVersionById?(collection: string, id: string): Promise<VersionRecord | null>;
+  /**
+   * Deletes a document's versions, keeping the newest `keep` (default `0`: delete all).
+   * Returns how many were deleted.
+   */
+  deleteVersions?(collection: string, documentId: string, options?: { keep?: number }): Promise<number>;
+
+  /**
+   * Scheduled publishing (#16). Optional: adapters that implement it store `publishAt` /
+   * `unpublishAt` and apply the `unpublishAt` guard on published reads. Returns rows, across all
+   * collections, with `publishAt <= now`, or with `unpublishAt <= now` while still `published`.
+   * Oldest due first.
+   */
+  findDue?(args: FindDueArgs): Promise<DocumentRecord[]>;
+
   /** Release connections (tests, scripts). */
   close?(): Promise<void>;
 }

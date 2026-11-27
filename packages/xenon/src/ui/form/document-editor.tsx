@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { RiMoreLine, RiDeleteBinLine, RiEditLine, RiEyeLine, RiEyeOffLine, RiLockLine, RiSave3Line } from "@remixicon/react";
+import { RiCalendarScheduleLine, RiHistoryLine, RiMoreLine, RiDeleteBinLine, RiEditLine, RiEyeLine, RiEyeOffLine, RiLockLine, RiSave3Line } from "@remixicon/react";
 import { StatusBadge, timeAgo, formatDate } from "../admin/format";
 import { registerDirtyBlocker } from "../admin/dirty-guard";
 import { useShellBar } from "../admin/shell-bar";
@@ -26,6 +26,9 @@ import { Kbd } from "../components/kbd";
 import { richTextToPlainText } from "../../react/rich-text";
 import type { RichTextDocument } from "../../core/types";
 import { documentTitle, initialData, normalizeFormData, validateFields } from "./model";
+import { ScheduleDialog, ScheduleSummary } from "./schedule-dialog";
+import { useAutosave } from "./use-autosave";
+import { VersionHistory } from "./version-history";
 
 export function DocumentEditor({ collection, doc }: { collection: ClientCollection; doc: AdminDoc | null }) {
   const { basePath, services } = useAdmin();
@@ -44,6 +47,10 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const [pendingLeave, setPendingLeave] = useState<{ proceed: () => void } | null>(null);
   /** A save was refused because someone saved a newer version: theirs, and which save we attempted. */
   const [conflict, setConflict] = useState<{ latest: AdminDoc; draft: boolean } | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [autosaving, setAutosaving] = useState(false);
+  const [autosaveFailed, setAutosaveFailed] = useState(false);
   const busy = useRef(false);
   const leaving = useRef(false);
   const alertRef = useRef<HTMLDivElement>(null);
@@ -183,6 +190,46 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     finally { busy.current = false; setPending(null); }
   }
 
+  /** Background draft save (admin `autosave`): quiet, never locks the form, keeps keystrokes typed meanwhile. */
+  const typed = useRef({ data, slugEdit });
+  typed.current = { data, slugEdit };
+  async function autosave() {
+    if (busy.current || readOnly || !current || pending || conflict) return;
+    const sent = typed.current;
+    // Draft rules only; a value that can't be saved yet waits for the next change (or a manual save).
+    if (Object.keys(validateFields(collection.fields, sent.data, true)).length) return;
+    busy.current = true; setAutosaving(true);
+    try {
+      const result = await services.save({
+        collection: collection.slug, id: current.id, data: normalizeFormData(collection.fields, sent.data), draft: true,
+        expectedUpdatedAt: current.updatedAt, autosave: true, ...(sent.slugEdit !== undefined ? { slug: sent.slugEdit } : {}),
+      });
+      if (!result.ok) {
+        if (isStale(result)) {
+          const latest = await services.get({ collection: collection.slug, id: current.id });
+          if (latest.ok) { setConflict({ latest: latest.data, draft: true }); return; }
+        }
+        setAutosaveFailed(true);
+        return;
+      }
+      setAutosaveFailed(false);
+      const saved = initialData(collection, result.data);
+      const untouched = typed.current.data === sent.data && typed.current.slugEdit === sent.slugEdit;
+      if (untouched && JSON.stringify(saved) !== JSON.stringify(sent.data)) { accept(result.data); return; }
+      // Keep the editor's values (and caret) when they match what was saved, or when typing went on.
+      setCurrent(result.data); setBaseline(JSON.stringify(saved));
+      if (typed.current.slugEdit === sent.slugEdit) setSlugEdit(undefined);
+    } catch { setAutosaveFailed(true); }
+    finally { busy.current = false; setAutosaving(false); }
+  }
+  useAutosave({
+    interval: isDraftsEnabled && current ? (collection.admin.autosave ?? null) : null,
+    enabled: !readOnly && !pending && !conflict,
+    dirty: dirty && file === null,
+    deps: [data, slugEdit],
+    run: autosave,
+  });
+
   async function remove() {
     if (!current || busy.current) return;
     busy.current = true; setPending("remove");
@@ -238,7 +285,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     });
   };
   const conflictAuthor = conflict ? (() => { const p = presence.peers.find((peer) => peer.version === conflict.latest.updatedAt); return p ? displayName(p.user) : null; })() : null;
-  const saveState = readOnly ? "Read-only" : pending === "remove" ? "Deleting…" : pending === "unpublish" ? "Unpublishing…" : pending ? "Saving…" : dirty ? "Unsaved changes" : current ? `Saved ${timeAgo(current.updatedAt)}` : "Not saved yet";
+  const saveState = readOnly ? "Read-only" : pending === "remove" ? "Deleting…" : pending === "unpublish" ? "Unpublishing…" : pending || autosaving ? "Saving…" : dirty ? (autosaveFailed ? "Autosave failed" : "Unsaved changes") : current ? `Saved ${timeAgo(current.updatedAt)}` : "Not saved yet";
   const words = bodyField ? richTextToPlainText(data[bodyField.name] as RichTextDocument | null).trim().split(/\s+/).filter(Boolean).length : 0;
   // Title/body layout: the canvas also holds fields placed in "main" (and page builders, which need the width).
   const canvasFields = canvasMode ? collection.fields.filter((field) => field !== titleField && field !== bodyField && (field.admin.position === "main" || (field.type === "blocks" && field.admin.position !== "sidebar"))) : [];
@@ -273,11 +320,13 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
       <Button type="button" onClick={presence.takeover}><RiEditLine data-icon="inline-start" />{presence.mode === "taken" && !presence.holder ? "Continue editing" : "Take over"}</Button>
     </div> : <div className="xe:flex xe:items-center xe:gap-1.5">
       {previewToggle}
+      {current && collection.versions ? <Tooltip><TooltipTrigger render={<Button type="button" variant="ghost" size="icon" aria-label="History" disabled={!!pending} onClick={() => setHistoryOpen(true)} />}><RiHistoryLine /></TooltipTrigger><TooltipContent>History</TooltipContent></Tooltip> : null}
       {isDraftsEnabled ? <Button type="button" variant="outline" className="xe:hidden xe:sm:inline-flex" disabled={!!pending} onClick={() => void save(true)}>{pending === "save" ? <Spinner /> : null}Save draft</Button> : null}
       <Button type="button" disabled={!!pending} onClick={() => void save(false)}>{pending === "publish" ? <Spinner /> : null}{isDraftsEnabled ? "Publish" : "Save"}</Button>
       {current ? <DropdownMenu><DropdownMenuTrigger ref={actionsButton} render={<Button type="button" variant="ghost" size="icon" aria-label="More document actions" disabled={!!pending} />}><RiMoreLine /></DropdownMenuTrigger>
         <DropdownMenuContent align="end"><DropdownMenuGroup>
           {isDraftsEnabled ? <DropdownMenuItem className="xe:sm:hidden" onClick={() => void save(true)}><RiSave3Line />Save draft</DropdownMenuItem> : null}
+          {collection.scheduling ? <DropdownMenuItem onClick={() => setScheduleOpen(true)}><RiCalendarScheduleLine />Schedule…</DropdownMenuItem> : null}
           {isDraftsEnabled && current.status === "published" ? <><DropdownMenuItem onClick={() => void unpublish()}><RiEyeOffLine />Unpublish</DropdownMenuItem><DropdownMenuSeparator /></> : null}
           <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}><RiDeleteBinLine />Delete</DropdownMenuItem>
         </DropdownMenuGroup></DropdownMenuContent>
@@ -346,6 +395,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
             manual={current?.slugManual === true} edit={slugEdit} disabled={locked || !!collection.upload}
             automaticFrom={collection.slugFrom ? (typeof data[collection.slugFrom] === "string" ? data[collection.slugFrom] as string : "") : null}
             onEdit={setSlugEdit} /> : null}
+          {collection.scheduling ? <ScheduleSummary doc={current} /> : null}
           {current ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-3"><dt className="xe:text-muted-foreground">Updated</dt><dd><Tooltip><TooltipTrigger render={<time dateTime={current.updatedAt} tabIndex={0} suppressHydrationWarning />}>{timeAgo(current.updatedAt)}</TooltipTrigger><TooltipContent>{formatDate(current.updatedAt)}</TooltipContent></Tooltip></dd></div> : null}
           {current ? <div className="xe:flex xe:items-center xe:justify-between xe:gap-3"><dt className="xe:text-muted-foreground">Created</dt><dd><Tooltip><TooltipTrigger render={<time dateTime={current.createdAt} tabIndex={0} suppressHydrationWarning />}>{timeAgo(current.createdAt)}</TooltipTrigger><TooltipContent>{formatDate(current.createdAt)}</TooltipContent></Tooltip></dd></div> : null}
         </dl>
@@ -359,6 +409,10 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
         <p>{isDraftsEnabled ? <><Kbd>⌘S</Kbd> save draft · <Kbd>⌘↵</Kbd> publish</> : <><Kbd>⌘S</Kbd> save</>}</p>
       </div>
     </aside>
+    {current && collection.versions ? <VersionHistory collection={collection} doc={current} data={data} dirty={dirty} readOnly={readOnly}
+      open={historyOpen} onOpenChange={setHistoryOpen} onRestored={accept} /> : null}
+    {current && collection.scheduling ? <ScheduleDialog collection={collection} doc={current} dirty={dirty} open={scheduleOpen} onOpenChange={setScheduleOpen}
+      onSaved={(saved) => { setCurrent(saved); if (!dirty) accept(saved); }} /> : null}
     <AlertDialog open={conflict !== null} onOpenChange={(open) => { if (!open) setConflict(null); }}><AlertDialogContent className="xe:data-[size=default]:max-w-[calc(100%-2rem)] xe:data-[size=default]:sm:max-w-lg"><AlertDialogHeader>
       <AlertDialogTitle>This {collection.labels.singular.toLowerCase()} changed while you were editing</AlertDialogTitle>
       <AlertDialogDescription>

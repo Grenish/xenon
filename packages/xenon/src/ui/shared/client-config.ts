@@ -3,6 +3,7 @@
  * Strips functions (validate, access) and converts RegExp to { source, flags }.
  * Isomorphic: safe to import from both server and `"use client"` modules.
  */
+import { autosaveInterval, versionsMax } from "../../core/collection";
 import type { AnyGlobal } from "../../core/global";
 import type { AnyBlock, AnyCollection, Field, FieldAdminOptions, FieldType, SelectOption } from "../../core/types";
 
@@ -57,12 +58,18 @@ export interface ClientCollection {
   fields: ClientField[];
   slugFrom: string | null;
   drafts: boolean;
+  /** Version history is kept (#15). */
+  versions?: boolean;
+  /** Publishes and unpublishes can be scheduled (drafts + an adapter with `findDue`, #16). */
+  scheduling?: boolean;
   upload: false | { mimeTypes: string[] | null; maxFileSize: number | null };
   admin: {
     useAsTitle: string | null;
     defaultColumns: string[];
     group: string | null;
     description: string | null;
+    /** Autosave delay in ms, or `null` when autosave is off. */
+    autosave?: number | null;
     hasPreview?: boolean;
   };
 }
@@ -185,7 +192,7 @@ export function toClientField(name: string, field: Field): ClientField {
   return out;
 }
 
-export function toClientCollection(collection: AnyCollection): ClientCollection {
+export function toClientCollection(collection: AnyCollection, options: { scheduling?: boolean } = {}): ClientCollection {
   const name = humanize(collection.slug);
   const singular = collection.labels?.singular ?? singularize(name);
   const fields = toClientFields(collection.fields);
@@ -196,6 +203,8 @@ export function toClientCollection(collection: AnyCollection): ClientCollection 
     fields,
     slugFrom: collection.slugFrom ?? null,
     drafts: collection.drafts !== false && !upload,
+    versions: versionsMax(collection) !== null,
+    scheduling: options.scheduling === true && collection.drafts !== false && !upload,
     upload: upload
       ? {
           mimeTypes: typeof upload === "object" && upload.mimeTypes ? [...upload.mimeTypes] : null,
@@ -207,6 +216,7 @@ export function toClientCollection(collection: AnyCollection): ClientCollection 
       defaultColumns: [...(collection.admin?.defaultColumns ?? [])],
       group: collection.admin?.group ?? null,
       description: collection.admin?.description ?? null,
+      autosave: autosaveInterval(collection),
       hasPreview: typeof collection.admin?.previewUrl === "function",
     },
   };

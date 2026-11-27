@@ -16,7 +16,7 @@ const client = new PGlite();
 const db = drizzle(client);
 afterAll(() => client.close());
 
-const dropTables = `DROP TABLE IF EXISTS "xenon_documents", "xenon_sessions", "xenon_accounts", "xenon_verifications", "xenon_users" CASCADE`;
+const dropTables = `DROP TABLE IF EXISTS "xenon_documents", "xenon_versions", "xenon_sessions", "xenon_accounts", "xenon_verifications", "xenon_users" CASCADE`;
 
 runDatabaseAdapterConformance("pglite", async () => pgliteAdapter());
 

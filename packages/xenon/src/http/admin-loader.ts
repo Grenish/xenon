@@ -231,7 +231,8 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
 
   const base = config.admin.path;
   const theme = options.theme ?? parseThemeCookie(headers.get("cookie"));
-  const allCollections = config.collections.map(toClientCollection);
+  const scheduling = typeof config.db?.findDue === "function";
+  const allCollections = config.collections.map((c) => toClientCollection(c, { scheduling }));
   const allGlobals = (config.globals ?? []).map(toClientGlobal);
   const [section, slug, id, ...rest] = segments;
 

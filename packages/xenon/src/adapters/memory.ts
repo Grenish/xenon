@@ -3,7 +3,7 @@ import { getSchema } from "better-auth/db";
 import { compareStrings, compareValues, matchesOperators } from "./match";
 import { fallbackSearchText, scoreMemorySearch } from "./search";
 import { SlugConflictError, UniqueConflictError, UpdateConflictError } from "./types";
-import type { DatabaseAdapter, DatabaseInitOptions, DocumentRecord, FieldIndexSpec, Where } from "./types";
+import type { DatabaseAdapter, DatabaseInitOptions, DocumentRecord, FieldIndexSpec, VersionRecord, Where } from "./types";
 
 const systemKeys = new Set(["id", "slug", "status", "createdAt", "updatedAt"]);
 
@@ -51,9 +51,32 @@ function matches(record: DocumentRecord, where: Where, source: "published" | "dr
   });
 }
 
+/** Sets or clears an optional schedule column (kept absent when `null`, like the Postgres adapter). */
+function setSchedule(record: DocumentRecord, key: "publishAt" | "unpublishAt", value: Date | null | undefined) {
+  if (value === undefined) return;
+  if (value === null) delete record[key];
+  else record[key] = new Date(value);
+}
+
+/** Published reads hide rows whose scheduled unpublish time has passed (even before cron runs). */
+function expired(record: DocumentRecord, now: Date): boolean {
+  return record.unpublishAt != null && record.unpublishAt.getTime() <= now.getTime();
+}
+
+function paginate<T>(rows: T[], limit: number, page: number) {
+  if (!Number.isSafeInteger(limit) || limit < 0 || !Number.isSafeInteger(page) || page < 1) {
+    throw new Error("[xenon] limit must be a nonnegative integer and page a positive integer.");
+  }
+  const totalDocs = rows.length;
+  const totalPages = limit === 0 ? 1 : Math.max(1, Math.ceil(totalDocs / limit));
+  const docs = page > totalPages ? [] : limit === 0 ? rows : rows.slice((page - 1) * limit, page * limit);
+  return { docs: structuredClone(docs), totalDocs, limit, page, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 };
+}
+
 /** A deterministic, isolated adapter for development and interface conformance tests. */
 export function memoryAdapter(): DatabaseAdapter {
   const records = new Map<string, DocumentRecord>();
+  const versions = new Map<string, VersionRecord>();
   const searchIndex = new Map<string, { live: string; draft: string | null }>();
   const authRows: Record<string, Record<string, unknown>[]> = Object.create(null);
   const uniqueSpecs = new Map<string, FieldIndexSpec>();
@@ -96,13 +119,13 @@ export function memoryAdapter(): DatabaseAdapter {
     },
     async find(args) {
       const { collection, source, where = {}, search, sort, limit = 10, page = 1 } = args;
-      if (!Number.isSafeInteger(limit) || limit < 0 || !Number.isSafeInteger(page) || page < 1) {
-        throw new Error("[xenon] limit must be a nonnegative integer and page a positive integer.");
-      }
+      const now = args.now ?? new Date();
       const query = search?.trim() ?? "";
       const scores = query ? new Map<string, number>() : null;
       const rows = [...records.values()].filter((row) => {
-        if (row.collection !== collection || (source !== "draft" && row.status !== "published")) return false;
+        if (row.collection !== collection) return false;
+        // Published reads skip drafts and documents whose scheduled unpublish has passed.
+        if (source !== "draft" && (row.status !== "published" || expired(row, now))) return false;
         if (!matches(row, where, source)) return false;
         if (!query) return true;
         const entry = searchIndex.get(row.id);
@@ -132,10 +155,7 @@ export function memoryAdapter(): DatabaseAdapter {
           return (descending ? -comparison : comparison) || compareStrings(left.id, right.id);
         });
       }
-      const totalDocs = rows.length;
-      const totalPages = limit === 0 ? 1 : Math.max(1, Math.ceil(totalDocs / limit));
-      const docs = page > totalPages ? [] : limit === 0 ? rows : rows.slice((page - 1) * limit, page * limit);
-      return { docs: structuredClone(docs), totalDocs, limit, page, totalPages, hasNextPage: page < totalPages, hasPrevPage: page > 1 };
+      return paginate(rows, limit, page);
     },
     async findById(collection, id) {
       const record = records.get(id);
@@ -144,6 +164,7 @@ export function memoryAdapter(): DatabaseAdapter {
     async create(input) {
       assertUnique(input);
       const timestamp = new Date();
+      const { publishAt, unpublishAt } = input;
       const record: DocumentRecord = {
         id: crypto.randomUUID(),
         collection: input.collection,
@@ -154,6 +175,8 @@ export function memoryAdapter(): DatabaseAdapter {
         createdAt: timestamp,
         updatedAt: new Date(timestamp),
       };
+      setSchedule(record, "publishAt", publishAt);
+      setSchedule(record, "unpublishAt", unpublishAt);
       records.set(record.id, record);
       searchIndex.set(record.id, {
         live: input.searchText !== undefined ? (input.searchText ?? "") : fallbackSearchText(record.slug, record.data),
@@ -176,6 +199,8 @@ export function memoryAdapter(): DatabaseAdapter {
       if (input.status !== undefined) record.status = input.status;
       if (input.data !== undefined) record.data = structuredClone(input.data);
       if (input.draftData !== undefined) record.draftData = structuredClone(input.draftData);
+      setSchedule(record, "publishAt", input.publishAt);
+      setSchedule(record, "unpublishAt", input.unpublishAt);
       assertUnique(record, id);
       // Strictly increasing, so updatedAt works as the record's version (see DatabaseAdapter.update).
       record.updatedAt = new Date(Math.max(Date.now(), previous.updatedAt.getTime() + 1));
@@ -198,6 +223,50 @@ export function memoryAdapter(): DatabaseAdapter {
       if (records.get(id)?.collection !== collection) return false;
       searchIndex.delete(id);
       return records.delete(id);
+    },
+    async createVersion(input) {
+      let last = 0;
+      for (const v of versions.values()) {
+        if (v.collection === input.collection && v.documentId === input.documentId) last = Math.max(last, v.createdAt.getTime());
+      }
+      const version: VersionRecord = {
+        ...structuredClone(input),
+        id: crypto.randomUUID(),
+        // Strictly increasing per document, so versions order without ties.
+        createdAt: new Date(Math.max(Date.now(), last + 1)),
+      };
+      versions.set(version.id, version);
+      return structuredClone(version);
+    },
+    async findVersions({ collection, documentId, limit = 10, page = 1 }) {
+      const rows = [...versions.values()]
+        .filter((v) => v.collection === collection && v.documentId === documentId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return paginate(rows, limit, page);
+    },
+    async findVersionById(collection, id) {
+      const version = versions.get(id);
+      return version?.collection === collection ? structuredClone(version) : null;
+    },
+    async deleteVersions(collection, documentId, options) {
+      const keep = Math.max(0, Math.floor(options?.keep ?? 0));
+      const rows = [...versions.values()]
+        .filter((v) => v.collection === collection && v.documentId === documentId)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const doomed = rows.slice(keep);
+      for (const v of doomed) versions.delete(v.id);
+      return doomed.length;
+    },
+    async findDue({ now, limit }) {
+      const at = now.getTime();
+      const dueAt = (r: DocumentRecord) => Math.min(
+        r.publishAt ? r.publishAt.getTime() : Infinity,
+        r.unpublishAt && r.status === "published" ? r.unpublishAt.getTime() : Infinity,
+      );
+      const rows = [...records.values()]
+        .filter((r) => dueAt(r) <= at)
+        .sort((a, b) => dueAt(a) - dueAt(b) || compareStrings(a.id, b.id));
+      return structuredClone(limit > 0 ? rows.slice(0, limit) : rows);
     },
     async getAuthDatabase(options) {
       for (const model of Object.keys(getSchema(options))) authRows[model] ??= [];

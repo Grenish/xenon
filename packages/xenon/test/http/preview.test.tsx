@@ -502,6 +502,9 @@ describe("Live Preview (#14) client protocol & Admin UI integration", () => {
       saveGlobal: async () => ({ ok: false, error: { code: "BAD_REQUEST", message: "noop" } }),
       getGlobal: async () => ({ ok: true, data: null }),
       unpublishGlobal: async () => ({ ok: false, error: { code: "BAD_REQUEST", message: "noop" } }),
+      versions: async () => ({ ok: true, data: { docs: [], totalDocs: 0, page: 1, hasNextPage: false } }),
+      restoreVersion: async () => ({ ok: false, error: { code: "BAD_REQUEST", message: "noop" } }),
+      schedule: async () => ({ ok: false, error: { code: "BAD_REQUEST", message: "noop" } }),
       previewUrl: async () => ({
         ok: true,
         data: { url: "/blog/hello", enterUrl: "/api/xenon/_preview?token=abc", targetOrigin: "http://localhost:3000" },
