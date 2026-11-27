@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { RiCalendarScheduleLine, RiHistoryLine, RiMoreLine, RiDeleteBinLine, RiEditLine, RiEyeOffLine, RiLockLine, RiSave3Line } from "@remixicon/react";
+import { RiCalendarScheduleLine, RiFileCopyLine, RiHistoryLine, RiMoreLine, RiDeleteBinLine, RiEditLine, RiEyeOffLine, RiLockLine, RiSave3Line } from "@remixicon/react";
 import { StatusBadge, timeAgo, formatDate } from "../admin/format";
 import { registerDirtyBlocker } from "../admin/dirty-guard";
 import { useShellBar } from "../admin/shell-bar";
@@ -40,7 +40,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
   const [slugEdit, setSlugEdit] = useState<string | null | undefined>(undefined);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
-  const [pending, setPending] = useState<"save" | "publish" | "unpublish" | "remove" | null>(null);
+  const [pending, setPending] = useState<"save" | "publish" | "unpublish" | "remove" | "duplicate" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pendingLeave, setPendingLeave] = useState<{ proceed: () => void } | null>(null);
   /** A save was refused because someone saved a newer version: theirs, and which save we attempted. */
@@ -188,6 +188,19 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     finally { busy.current = false; setPending(null); }
   }
 
+  async function duplicate() {
+    if (!current || busy.current) return;
+    if (dirty) { toast("Save your changes first", { description: "The copy is made from the saved version." }); return; }
+    busy.current = true; setPending("duplicate");
+    try {
+      const result = await services.duplicate({ collection: collection.slug, id: current.id });
+      if (!result.ok) { showError(result); return; }
+      toast.success("Copy created", { description: "You're now editing the copy." });
+      router.push(adminRoutes.edit(basePath, collection.slug, result.data.id));
+    } catch { toast.error("Could not duplicate this item. Try again."); }
+    finally { busy.current = false; setPending(null); }
+  }
+
   /** Background draft save (admin `autosave`): quiet, never locks the form, keeps keystrokes typed meanwhile. */
   const typed = useRef({ data, slugEdit });
   typed.current = { data, slugEdit };
@@ -236,7 +249,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
       if (!result.ok) { showError(result); return; }
       leaving.current = true;
       setConfirmDelete(false); setBaseline(JSON.stringify(data)); setFile(null);
-      toast.success(`${collection.labels.singular} deleted`);
+      toast.success(collection.trash ? `${collection.labels.singular} moved to the trash` : `${collection.labels.singular} deleted`);
       router.replace(adminRoutes.list(basePath, collection.slug));
     } catch { toast.error("Could not delete this item. Try again."); }
     finally { busy.current = false; setPending(null); }
@@ -283,7 +296,7 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
     });
   };
   const conflictAuthor = conflict ? (() => { const p = presence.peers.find((peer) => peer.version === conflict.latest.updatedAt); return p ? displayName(p.user) : null; })() : null;
-  const saveState = readOnly ? "Read-only" : pending === "remove" ? "Deleting…" : pending === "unpublish" ? "Unpublishing…" : pending || autosaving ? "Saving…" : dirty ? (autosaveFailed ? "Autosave failed" : "Unsaved changes") : current ? `Saved ${timeAgo(current.updatedAt)}` : "Not saved yet";
+  const saveState = readOnly ? "Read-only" : pending === "remove" ? "Deleting…" : pending === "unpublish" ? "Unpublishing…" : pending === "duplicate" ? "Duplicating…" : pending || autosaving ? "Saving…" : dirty ? (autosaveFailed ? "Autosave failed" : "Unsaved changes") : current ? `Saved ${timeAgo(current.updatedAt)}` : "Not saved yet";
   const words = bodyField ? richTextToPlainText(data[bodyField.name] as RichTextDocument | null).trim().split(/\s+/).filter(Boolean).length : 0;
   // Title/body layout: the canvas also holds fields placed in "main" (and page builders, which need the width).
   const canvasFields = canvasMode ? collection.fields.filter((field) => field !== titleField && field !== bodyField && (field.admin.position === "main" || (field.type === "blocks" && field.admin.position !== "sidebar"))) : [];
@@ -307,8 +320,9 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
         <DropdownMenuContent align="end"><DropdownMenuGroup>
           {isDraftsEnabled ? <DropdownMenuItem className="xe:sm:hidden" onClick={() => void save(true)}><RiSave3Line />Save draft</DropdownMenuItem> : null}
           {collection.scheduling ? <DropdownMenuItem onClick={() => setScheduleOpen(true)}><RiCalendarScheduleLine />Schedule…</DropdownMenuItem> : null}
+          {!collection.upload ? <DropdownMenuItem onClick={() => void duplicate()}><RiFileCopyLine />Duplicate</DropdownMenuItem> : null}
           {isDraftsEnabled && current.status === "published" ? <><DropdownMenuItem onClick={() => void unpublish()}><RiEyeOffLine />Unpublish</DropdownMenuItem><DropdownMenuSeparator /></> : null}
-          <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}><RiDeleteBinLine />Delete</DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onClick={() => setConfirmDelete(true)}><RiDeleteBinLine />{collection.trash ? "Move to trash" : "Delete"}</DropdownMenuItem>
         </DropdownMenuGroup></DropdownMenuContent>
       </DropdownMenu> : null}
     </div>,
@@ -409,8 +423,8 @@ export function DocumentEditor({ collection, doc }: { collection: ClientCollecti
         next?.proceed();
       }}>Discard changes</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent></AlertDialog>
-    <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!pending) setConfirmDelete(open); }}><AlertDialogContent finalFocus={actionsButton}><AlertDialogHeader><AlertDialogTitle>Delete this {collection.labels.singular.toLowerCase()}?</AlertDialogTitle><AlertDialogDescription>“{title}” will be permanently deleted. This can’t be undone.</AlertDialogDescription></AlertDialogHeader>
-      <AlertDialogFooter><AlertDialogCancel disabled={!!pending}>Keep it</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={!!pending} onClick={() => void remove()}>{pending === "remove" ? <Spinner /> : <RiDeleteBinLine data-icon="inline-start" />}Delete permanently</AlertDialogAction></AlertDialogFooter>
+    <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!pending) setConfirmDelete(open); }}><AlertDialogContent finalFocus={actionsButton}><AlertDialogHeader><AlertDialogTitle>{collection.trash ? "Move" : "Delete"} this {collection.labels.singular.toLowerCase()}{collection.trash ? " to the trash" : ""}?</AlertDialogTitle><AlertDialogDescription>{collection.trash ? `“${title}” leaves the site now. You can restore it from the trash.` : `“${title}” will be permanently deleted. This can’t be undone.`}</AlertDialogDescription></AlertDialogHeader>
+      <AlertDialogFooter><AlertDialogCancel disabled={!!pending}>Keep it</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={!!pending} onClick={() => void remove()}>{pending === "remove" ? <Spinner /> : <RiDeleteBinLine data-icon="inline-start" />}{collection.trash ? "Move to trash" : "Delete permanently"}</AlertDialogAction></AlertDialogFooter>
     </AlertDialogContent></AlertDialog>
   </div>;
 }

@@ -58,6 +58,9 @@ const SCOPED_METHODS = [
   "update",
   "unpublish",
   "delete",
+  "restore",
+  "purge",
+  "duplicate",
   "presignUpload",
   "completeUpload",
   "findVersions",
@@ -142,6 +145,18 @@ function storageKeyOf(record: DocumentRecord): string | null {
 /** Ever published → slug frozen. Unpublished docs keep their last live data in `data`. */
 function wasPublished(record: DocumentRecord): boolean {
   return record.status === "published" || Object.keys(record.data).length > 0;
+}
+
+/** A copy of `data` without values of `unique: true` fields (top level and inside groups). */
+function withoutUniqueValues(fields: Record<string, Field>, data: AnyDoc): AnyDoc {
+  const out: AnyDoc = { ...data };
+  for (const [key, field] of Object.entries(fields)) {
+    if ((field as { unique?: boolean }).unique) delete out[key];
+    else if (field.type === "group" && isRecord(out[key])) {
+      out[key] = withoutUniqueValues(field.fields as Record<string, Field>, out[key] as AnyDoc);
+    }
+  }
+  return out;
 }
 
 /**
@@ -294,7 +309,7 @@ export function createXenon<Cfg extends XenonConfig>(
     collection: AnyCollection,
     scope: OpScope,
     record: DocumentRecord,
-    p: { operation: HookOperation | "unpublish"; draft: boolean; previousDoc: AnyDoc | null },
+    p: { operation: HookOperation | "unpublish" | "restore"; draft: boolean; previousDoc: AnyDoc | null },
   ): Promise<AnyDoc> {
     const doc = toDoc(collection, record, p.draft);
     if (hasHooks(collection, "afterChange")) {
@@ -348,7 +363,8 @@ export function createXenon<Cfg extends XenonConfig>(
     // One query for every `base` / `base-N` slug in the collection (`contains` over-matches; filtered below).
     const where: Where = { or: [{ slug: { equals: base } }, { slug: { contains: `${base}-` } }] };
     if (selfId) where.id = { not_equals: selfId };
-    const { docs } = await requireDb().find({ collection: collection.slug, source: "draft", where, limit: 0 });
+    // Trashed documents keep their slugs.
+    const { docs } = await requireDb().find({ collection: collection.slug, source: "draft", where, limit: 0, trash: "include" });
     const taken = new Set<number>();
     for (const doc of docs) {
       const n = doc.slug === null ? null : slugSuffix(doc.slug, base);
@@ -370,7 +386,7 @@ export function createXenon<Cfg extends XenonConfig>(
     }
     const where: Where = { slug: { equals: slug } };
     if (selfId) where.id = { not_equals: selfId };
-    const { docs } = await requireDb().find({ collection: collection.slug, source: "draft", where, limit: 1 });
+    const { docs } = await requireDb().find({ collection: collection.slug, source: "draft", where, limit: 1, trash: "include" });
     if (docs.length) {
       const message = `The slug "${slug}" is already used by another document.`;
       throw new XenonError("CONFLICT", message, [{ path: ["slug"], message }]);
@@ -466,8 +482,41 @@ export function createXenon<Cfg extends XenonConfig>(
 
   async function getRecord(collection: AnyCollection, id: string): Promise<DocumentRecord> {
     const record = await requireDb().findById(collection.slug, id);
-    if (!record) throw new XenonError("NOT_FOUND", `Document "${id}" not found in "${collection.slug}".`);
+    // A trashed document can only be read with `trash: true`, restored or purged.
+    if (!record || record.deletedAt) throw new XenonError("NOT_FOUND", `Document "${id}" not found in "${collection.slug}".`);
     return record;
+  }
+
+  /**
+   * Removes a document: to the trash (collections with `trash`, unless `permanent`), or for good.
+   * Delete hooks and `onChange` run when it leaves the site, not again when a trashed one is purged.
+   */
+  async function removeDocument(collection: AnyCollection, scope: OpScope, existing: DocumentRecord, permanent: boolean): Promise<AnyDoc> {
+    const db = requireDb();
+    const doc = toDoc(collection, existing, true);
+    const leaving = !existing.deletedAt;
+    const hookArgs = { ...hookBase(collection, scope), id: existing.id, doc, permanent };
+    if (leaving && hasHooks(collection, "beforeDelete")) await runEffectHooks(collection, "beforeDelete", hookArgs);
+    if (permanent) {
+      const deleted = await db.delete(collection.slug, existing.id);
+      if (!deleted) throw new XenonError("NOT_FOUND", `Document "${existing.id}" not found in "${collection.slug}".`);
+      const key = storageKeyOf(existing);
+      if (key && config.storage) await config.storage.delete(key).catch(() => {});
+      await db.deleteVersions?.(collection.slug, existing.id);
+    } else {
+      const trashed = await db.update(collection.slug, existing.id, {
+        deletedAt: new Date(),
+        // A trashed document is never published or unpublished on schedule.
+        ...(existing.publishAt ? { publishAt: null } : {}),
+        ...(existing.unpublishAt ? { unpublishAt: null } : {}),
+      });
+      if (!trashed) throw new XenonError("NOT_FOUND", `Document "${existing.id}" not found in "${collection.slug}".`);
+    }
+    if (leaving) {
+      await notify(collection.slug, existing.id, "delete");
+      if (hasHooks(collection, "afterDelete")) await runEffectHooks(collection, "afterDelete", hookArgs);
+    }
+    return afterRead(collection, doc, true, scope);
   }
 
   async function prepareReadModifiers(
@@ -566,12 +615,14 @@ export function createXenon<Cfg extends XenonConfig>(
       await init();
       const collection = requireCollection(o.collection);
       const scope = scopeOf(o);
-      const draft = o.draft === true;
+      // The trash is read as working copies.
+      const draft = o.draft === true || o.trash === true;
       await checkAccess(collection, "read", o, draft);
       const modifiers = await prepareReadModifiers(collection, o, draft);
       const result = await requireDb().find({
         collection: collection.slug,
         source: draft ? "draft" : "published",
+        ...(o.trash === true ? { trash: "only" as const } : {}),
         where: withFieldDefaults(collection, o.where),
         sort: o.sort,
         limit: o.limit,
@@ -595,7 +646,7 @@ export function createXenon<Cfg extends XenonConfig>(
       await checkAccess(collection, "read", o, draft);
       const modifiers = await prepareReadModifiers(collection, o, draft);
       const record = await requireDb().findById(collection.slug, o.id);
-      if (!record || (!draft && !isLive(record))) return null;
+      if (!record || (record.deletedAt && o.trash !== true) || (!draft && !isLive(record))) return null;
       const [doc] = await finalizeDocs(collection, [toDoc(collection, record, draft)], draft, modifiers, scope);
       return (doc ?? null) as never;
     },
@@ -779,20 +830,43 @@ export function createXenon<Cfg extends XenonConfig>(
       const scope = scopeOf(o);
       await checkAccess(collection, "delete", o);
       const existing = await getRecord(collection, o.id);
-      const doc = toDoc(collection, existing, true);
-      if (hasHooks(collection, "beforeDelete")) {
-        await runEffectHooks(collection, "beforeDelete", { ...hookBase(collection, scope), id: existing.id, doc });
-      }
-      const deleted = await requireDb().delete(collection.slug, existing.id);
-      if (!deleted) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
-      const key = storageKeyOf(existing);
-      if (key && config.storage) await config.storage.delete(key).catch(() => {});
-      await requireDb().deleteVersions?.(collection.slug, existing.id);
-      await notify(collection.slug, existing.id, "delete");
-      if (hasHooks(collection, "afterDelete")) {
-        await runEffectHooks(collection, "afterDelete", { ...hookBase(collection, scope), id: existing.id, doc });
-      }
-      return (await afterRead(collection, doc, true, scope)) as never;
+      return (await removeDocument(collection, scope, existing, collection.trash !== true)) as never;
+    },
+
+    async purge(o) {
+      await init();
+      const collection = requireCollection(o.collection);
+      const scope = scopeOf(o);
+      await checkAccess(collection, "delete", o);
+      const existing = await requireDb().findById(collection.slug, o.id);
+      if (!existing) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
+      return (await removeDocument(collection, scope, existing, true)) as never;
+    },
+
+    async restore(o) {
+      await init();
+      const collection = requireCollection(o.collection);
+      const scope = scopeOf(o);
+      await checkAccess(collection, "update", o);
+      const existing = await requireDb().findById(collection.slug, o.id);
+      if (!existing?.deletedAt) throw new XenonError("NOT_FOUND", `Document "${o.id}" is not in the trash of "${collection.slug}".`);
+      const record = await requireDb().update(collection.slug, existing.id, { deletedAt: null });
+      if (!record) throw new XenonError("NOT_FOUND", `Document "${o.id}" not found in "${collection.slug}".`);
+      // Back on the site when it is published.
+      await notify(collection.slug, record.id, "update", record.status !== "published");
+      return (await finishWrite(collection, scope, record, { operation: "restore", draft: true, previousDoc: null })) as never;
+    },
+
+    async duplicate(o) {
+      await init();
+      const collection = requireCollection(o.collection);
+      if (isUpload(collection)) throw new XenonError("BAD_REQUEST", `Documents of "${collection.slug}" can't be duplicated (they hold a file).`);
+      await checkAccess(collection, "read", o, true);
+      const source = await getRecord(collection, o.id);
+      const copy = withoutUniqueValues(fieldsOf(collection), pruneToFields(collection.fields, source.draftData ?? source.data));
+      const data = isRecord(o.data) ? mergeUpdate(collection.fields, copy, o.data as AnyDoc) : copy;
+      const { id: _id, data: _data, ...ctx } = o;
+      return (await api.create({ ...ctx, collection: collection.slug, data: data as never, draft: draftsEnabled(collection) })) as never;
     },
 
     getCollection: (slug) => collections.get(slug),
@@ -918,9 +992,10 @@ export function createXenon<Cfg extends XenonConfig>(
       const finalUrl = storage.getUrl(payload.key);
       const completed = await requireDb().find({
         collection: collection.slug,
-        source: "published",
+        source: "draft",
         where: { url: { equals: finalUrl } },
         limit: 1,
+        trash: "include",
       });
       if (completed.docs.length > 0) {
         throw new XenonError("CONFLICT", "This upload has already been completed.");

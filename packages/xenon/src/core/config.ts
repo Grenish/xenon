@@ -246,6 +246,7 @@ function validateVersioning(c: AnyCollection): void {
     }
   }
   if (versions && isUploadCollection(c)) fail(slug, null, "versions are not supported on upload collections.");
+  if (c.trash !== undefined && typeof c.trash !== "boolean") fail(slug, null, "trash must be a boolean.");
 
   const autosave = c.admin?.autosave as unknown;
   if (autosave === undefined || autosave === false) return;

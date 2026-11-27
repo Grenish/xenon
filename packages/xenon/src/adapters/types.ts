@@ -31,6 +31,11 @@ export interface DocumentRecord {
    * (`source: "published"`) exclude rows whose `unpublishAt` is at or before `FindArgs.now`.
    */
   unpublishAt?: Date | null;
+  /**
+   * When the document was moved to the trash (#18). Absent (or `null`) for live documents. Trashed
+   * rows keep their slug and unique values (so a restore never collides).
+   */
+  deletedAt?: Date | null;
 }
 
 export interface WhereOperators {
@@ -74,6 +79,11 @@ export interface FindArgs {
    * `unpublishAt <= now` are excluded). Default: the current time.
    */
   now?: Date;
+  /**
+   * Trashed rows (`deletedAt` set): `exclude` (default) leaves them out, `only` returns nothing
+   * else, `include` returns both.
+   */
+  trash?: "exclude" | "include" | "only";
 }
 
 export interface PaginatedResult<T> {
@@ -96,6 +106,8 @@ export interface CreateRecordInput {
   publishAt?: Date | null;
   /** `null` clears a schedule. */
   unpublishAt?: Date | null;
+  /** Moves the row to the trash; `null` restores it. */
+  deletedAt?: Date | null;
 }
 
 export type UpdateRecordInput = Partial<Omit<CreateRecordInput, "collection">>;
@@ -286,7 +298,7 @@ export interface DatabaseAdapter {
    * Scheduled publishing (#16). Optional: adapters that implement it store `publishAt` /
    * `unpublishAt` and apply the `unpublishAt` guard on published reads. Returns rows, across all
    * collections, with `publishAt <= now`, or with `unpublishAt <= now` while still `published`.
-   * Oldest due first.
+   * Trashed rows are never due. Oldest due first.
    */
   findDue?(args: FindDueArgs): Promise<DocumentRecord[]>;
 

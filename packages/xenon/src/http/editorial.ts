@@ -19,9 +19,26 @@ import { PRIVATE_NO_STORE } from "./cache";
 const NO_STORE = { "cache-control": PRIVATE_NO_STORE };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: NO_STORE });
 
-/** `true` for `{collection}/{id}/versions…` and `{collection}/{id}/schedule` paths. */
+/** `true` for `{collection}/{id}/versions…`, `…/schedule`, `…/restore` and `…/duplicate` paths. */
 export function isEditorialRoute(segments: readonly string[]): boolean {
+  if (segments.length === 3 && (segments[2] === "restore" || segments[2] === "duplicate")) return true;
   return segments.length >= 3 && (segments[2] === "versions" || segments[2] === "schedule");
+}
+
+/** `?trash=true` on a list: read the trash (#18). */
+export function parseTrashParam(params: URLSearchParams): boolean {
+  const raw = params.get("trash");
+  if (raw === null || raw === "false" || raw === "0") return false;
+  if (raw === "true" || raw === "1") return true;
+  throw new XenonError("BAD_REQUEST", "trash must be true or false.");
+}
+
+/** `?permanent=true` on DELETE: purge instead of moving to the trash (#18). */
+export function parsePermanentParam(params: URLSearchParams): boolean {
+  const raw = params.get("permanent");
+  if (raw === null || raw === "false" || raw === "0") return false;
+  if (raw === "true" || raw === "1") return true;
+  throw new XenonError("BAD_REQUEST", "permanent must be true or false.");
 }
 
 function intParam(params: URLSearchParams, key: string): number | undefined {
@@ -42,7 +59,7 @@ function draftParam(params: URLSearchParams): boolean | undefined {
 
 async function readJson(request: Request): Promise<Record<string, unknown>> {
   const contentType = request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
-  if (contentType !== "application/json") throw new XenonError("UNSUPPORTED_MEDIA_TYPE", "Schedules require application/json.");
+  if (contentType !== "application/json") throw new XenonError("UNSUPPORTED_MEDIA_TYPE", "This endpoint requires application/json.");
   let body: unknown;
   try { body = await request.json(); } catch { throw new XenonError("BAD_REQUEST", "Invalid JSON body."); }
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new XenonError("BAD_REQUEST", "Request body must be a JSON object.");
@@ -67,6 +84,15 @@ export async function handleEditorialRoute(
   const params = new URL(request.url).searchParams;
   const method = request.method;
 
+  if (kind === "restore" && method === "POST") return json(await xenon.restore(shared));
+  if (kind === "duplicate" && method === "POST") {
+    const hasBody = request.headers.get("content-type") !== null;
+    const body = hasBody ? await readJson(request) : {};
+    if (body.data !== undefined && (typeof body.data !== "object" || body.data === null || Array.isArray(body.data))) {
+      throw new XenonError("BAD_REQUEST", "data must be a JSON object.");
+    }
+    return json(await xenon.duplicate({ ...shared, data: body.data as never }), 201);
+  }
   if (kind === "schedule" && segments.length === 3) {
     if (method === "GET") return json(await xenon.getSchedule(shared));
     if (method === "PUT" || method === "POST") {

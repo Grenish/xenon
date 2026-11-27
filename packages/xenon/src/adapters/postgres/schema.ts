@@ -18,6 +18,7 @@ export const xenonDocuments = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     publishAt: timestamp("publish_at", { withTimezone: true, mode: "date" }),
     unpublishAt: timestamp("unpublish_at", { withTimezone: true, mode: "date" }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }),
   },
   (t) => [
     uniqueIndex("xenon_documents_collection_slug_idx")
@@ -68,6 +69,10 @@ export const DOCUMENTS_DDL = [
     ON "xenon_documents" ("publish_at") WHERE "publish_at" IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS "xenon_documents_unpublish_at_idx"
     ON "xenon_documents" ("unpublish_at") WHERE "unpublish_at" IS NOT NULL`,
+  // Trash (#18).
+  `ALTER TABLE "xenon_documents" ADD COLUMN IF NOT EXISTS "deleted_at" timestamptz`,
+  `CREATE INDEX IF NOT EXISTS "xenon_documents_trash_idx"
+    ON "xenon_documents" ("collection", "deleted_at") WHERE "deleted_at" IS NOT NULL`,
   // Version history (#15).
   `CREATE TABLE IF NOT EXISTS "xenon_versions" (
     "id" text PRIMARY KEY,

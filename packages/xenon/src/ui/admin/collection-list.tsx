@@ -8,8 +8,10 @@ import {
   RiFileLine,
   RiSearchLine,
 } from "@remixicon/react";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { toast } from "sonner";
 import { buttonVariants } from "../components/button";
+import { Checkbox } from "../components/checkbox";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../components/empty";
 import { Input } from "../components/input";
 import { Kbd } from "../components/kbd";
@@ -18,9 +20,11 @@ import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
 import type { ClientCollection, ClientField } from "../shared/client-config";
 import { AdminLink as Link, useAdminPathname, useAdminRouter } from "../shared/router";
-import { type AdminListRow, adminRoutes, type DocSummary } from "../shared/services";
+import { type ListFilter, serializeListFilters } from "../shared/list-filters";
+import { type AdminListRow, adminRoutes, type BulkAction, type DocSummary } from "../shared/services";
 import { StatusBadge, formatDate, timeAgo } from "./format";
 import { DocPeers } from "./presence";
+import { BulkBar, ColumnsMenu, columnFields, FilterChips, FilterMenu, type SavedView, useListPrefs, ViewsMenu } from "./list-tools";
 import { collectionIcon } from "./shell";
 
 export type ListRow = AdminListRow;
@@ -31,7 +35,8 @@ export interface CollectionListViewProps {
   totalDocs: number;
   page: number;
   totalPages: number;
-  query: { q: string; status: string; sort: string };
+  /** `status`: `all`, `published`, `draft` or `trash`. */
+  query: { q: string; status: string; sort: string; filter?: ListFilter[] };
 }
 
 const SIMPLE: ClientField["type"][] = ["text", "select", "number", "boolean", "textarea"];
@@ -56,6 +61,8 @@ function renderValue(field: ClientField, value: unknown): string {
     }
     case "number":
       return typeof value === "number" ? value.toLocaleString() : String(value);
+    case "date":
+      return typeof value === "string" && !Number.isNaN(new Date(value).getTime()) ? formatDate(value) : String(value);
     case "media":
     case "relation":
       return Array.isArray(value) ? `${value.length} linked` : "1 linked";
@@ -69,7 +76,7 @@ function isImage(row: DocSummary) {
 }
 
 export function CollectionListView({ collection, rows, totalDocs, page, totalPages, query }: CollectionListViewProps) {
-  const { basePath } = useAdmin();
+  const { basePath, services } = useAdmin();
   const router = useAdminRouter();
   const pathname = useAdminPathname();
   const [pending, startTransition] = useTransition();
@@ -78,10 +85,19 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
   const searchRef = useRef<HTMLInputElement>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const submittedSearches = useRef<string[]>([]);
+  const prefs = useListPrefs(collection.slug);
+  const filters = query.filter ?? [];
+  const trashView = query.status === "trash";
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkPending, setBulkPending] = useState<BulkAction | null>(null);
   // A long-text field (an excerpt, a summary) reads better as the title's second line than as a column.
   const allColumns = pickColumns(collection);
-  const subtitle = allColumns.find((f) => f.type === "textarea") ?? collection.fields.find((f) => f.type === "textarea" && !f.admin.hidden && f.name !== collection.admin.useAsTitle) ?? null;
-  const columns = allColumns.filter((f) => f !== subtitle);
+  const defaultSubtitle = allColumns.find((f) => f.type === "textarea") ?? collection.fields.find((f) => f.type === "textarea" && !f.admin.hidden && f.name !== collection.admin.useAsTitle) ?? null;
+  // Columns chosen in this browser replace the defaults (and the subtitle line).
+  const chosen = useMemo(() => (prefs.columns ? columnFields(collection).filter((f) => prefs.columns!.includes(f.name)) : null), [collection, prefs.columns]);
+  const subtitle = chosen ? null : defaultSubtitle;
+  const columns = chosen ?? allColumns.filter((f) => f !== subtitle);
+  const visibleColumnNames = columns.map((f) => f.name).concat(subtitle ? [subtitle.name] : []);
   const titleLabel = collection.fields.find((f) => f.name === collection.admin.useAsTitle)?.label ?? "Title";
   const Icon = collectionIcon(collection);
 
@@ -129,7 +145,34 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
     };
   }, []);
 
-  useEffect(() => setActive(-1), [rows]);
+  useEffect(() => { setActive(-1); setSelected(new Set()); }, [rows]);
+
+  const setFilters = (next: ListFilter[]) => update({ filter: serializeListFilters(next), page: null });
+  const currentView: Omit<SavedView, "name"> = { status: query.status, sort: query.sort, filter: filters, columns: prefs.columns };
+  const applyView = (view: SavedView) => {
+    prefs.setColumns(view.columns);
+    update({ status: view.status, sort: view.sort === "-updatedAt" ? null : view.sort, filter: serializeListFilters(view.filter), page: null });
+  };
+  const saveView = (name: string) => {
+    prefs.setViews([...prefs.views.filter((v) => v.name !== name), { name, ...currentView }]);
+    toast.success(`Saved “${name}”`);
+  };
+
+  async function runBulk(action: BulkAction) {
+    const ids = [...selected];
+    if (!ids.length || bulkPending) return;
+    setBulkPending(action);
+    try {
+      const result = await services.bulk({ collection: collection.slug, ids, action });
+      if (!result.ok) { toast.error(result.error.message); return; }
+      const { done, failed } = result.data;
+      const verb = { publish: "Published", unpublish: "Unpublished", delete: collection.trash ? "Moved to trash:" : "Deleted", restore: "Restored", purge: "Deleted permanently:" }[action];
+      if (done.length) toast.success(`${verb} ${done.length} ${noun(done.length)}`);
+      if (failed.length) toast.error(`${failed.length} couldn’t be changed`, { description: failed[0]!.message });
+      setSelected(new Set(failed.map((f) => f.id)));
+    } catch { toast.error("Something went wrong. Try again."); }
+    finally { setBulkPending(null); }
+  }
 
   // Keyboard: "/" search, "c" create, j/k move, Enter open
   useEffect(() => {
@@ -145,28 +188,31 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
         setActive((a) => Math.min(rows.length - 1, a + 1));
       } else if (e.key === "k" || e.key === "ArrowUp") {
         setActive((a) => rows.length ? Math.max(0, a - 1) : -1);
-      } else if (e.key === "Enter" && active >= 0 && rows[active]) {
+      } else if (e.key === "Enter" && active >= 0 && rows[active] && query.status !== "trash") {
         router.push(adminRoutes.edit(basePath, collection.slug, rows[active].id));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [rows, active, basePath, collection.slug, router]);
+  }, [rows, active, basePath, collection.slug, router, query.status]);
 
   const sortKey = query.sort.replace(/^-/, "");
   const sortDesc = query.sort.startsWith("-");
   const toggleSort = (key: string) => update({ sort: sortKey === key && !sortDesc ? `-${key}` : key, page: null });
   const SortIcon = ({ k }: { k: string }) =>
     sortKey === k ? (sortDesc ? <RiArrowDownSLine className="xe:size-4" /> : <RiArrowUpSLine className="xe:size-4" />) : null;
-  const filtered = query.q !== "" || query.status !== "all";
+  const filtered = query.q !== "" || query.status !== "all" || filters.length > 0;
   const newHref = adminRoutes.create(basePath, collection.slug);
 
   const noun = (n: number) => (collection.upload ? (n === 1 ? "file" : "files") : (n === 1 ? collection.labels.singular : collection.labels.plural).toLowerCase());
   const statusTabs = [
     { value: "all", label: "All" },
-    { value: "published", label: "Published" },
-    { value: "draft", label: "Drafts" },
+    ...(collection.drafts ? [{ value: "published", label: "Published" }, { value: "draft", label: "Drafts" }] : []),
+    ...(collection.trash ? [{ value: "trash", label: "Trash" }] : []),
   ];
+  const selectable = !collection.upload || trashView;
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const toggle = (id: string, on: boolean) => setSelected((prev) => { const next = new Set(prev); if (on) next.add(id); else next.delete(id); return next; });
 
   return (
     <div className="xe:flex xe:flex-col xe:gap-5">
@@ -184,7 +230,7 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
 
       {/* Filters: status as underline tabs on one full-width rule, search at its right end. */}
       <div className="xe:flex xe:flex-col-reverse xe:gap-3 xe:border-b xe:border-border xe:sm:flex-row xe:sm:items-end xe:sm:justify-between">
-        {collection.drafts ? (
+        {statusTabs.length > 1 ? (
           <div role="tablist" aria-label="Status" className="xe:-mb-px xe:flex xe:gap-5">
             {statusTabs.map((t) => {
               const selected = query.status === t.value;
@@ -220,6 +266,15 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
         </div>
       </div>
 
+      <div className="xe:flex xe:flex-wrap xe:items-center xe:gap-2">
+        <FilterMenu fields={collection.fields} filters={filters} onChange={setFilters} />
+        <div className="xe:min-w-0 xe:flex-1"><FilterChips fields={collection.fields} filters={filters} onChange={setFilters} /></div>
+        <ViewsMenu views={prefs.views} current={currentView} onApply={applyView} onSave={saveView} onDelete={(name) => prefs.setViews(prefs.views.filter((v) => v.name !== name))} />
+        {!collection.upload || trashView ? <ColumnsMenu collection={collection} visible={visibleColumnNames} onChange={prefs.setColumns} /> : null}
+      </div>
+
+      {selected.size > 0 ? <BulkBar collection={collection} count={selected.size} trashView={trashView} pending={bulkPending} onRun={(a) => void runBulk(a)} onClear={() => setSelected(new Set())} /> : null}
+
       <div className={cn("xe:transition-opacity", pending && "xe:opacity-60")}>
         {rows.length === 0 ? (
           <div className="xe:rounded-lg xe:border xe:border-dashed xe:border-border">
@@ -228,9 +283,11 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
                 <EmptyMedia variant="icon">
                   <Icon />
                 </EmptyMedia>
-                <EmptyTitle>{filtered ? "No matches" : `No ${collection.labels.plural.toLowerCase()} yet`}</EmptyTitle>
+                <EmptyTitle>{trashView && !query.q && !filters.length ? "The trash is empty" : filtered ? "No matches" : `No ${collection.labels.plural.toLowerCase()} yet`}</EmptyTitle>
                 <EmptyDescription>
-                  {filtered
+                  {trashView && !query.q && !filters.length
+                    ? "Deleted items wait here until you restore them or delete them permanently."
+                    : filtered
                     ? "Try another search or clear the filters."
                     : collection.upload
                       ? "Upload images and files to use them across your content."
@@ -239,7 +296,7 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
               </EmptyHeader>
               <EmptyContent>
                 {filtered ? (
-                  <button type="button" className={buttonVariants({ variant: "outline" })} onClick={() => { clearTimeout(searchTimer.current); setSearch(""); update({ q: null, status: null, page: null }); }}>
+                  <button type="button" className={buttonVariants({ variant: "outline" })} onClick={() => { clearTimeout(searchTimer.current); setSearch(""); update({ q: null, status: null, filter: null, page: null }); }}>
                     Clear filters
                   </button>
                 ) : (
@@ -250,7 +307,7 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
               </EmptyContent>
             </Empty>
           </div>
-        ) : collection.upload ? (
+        ) : collection.upload && !trashView ? (
           <ul className="xe:grid xe:grid-cols-2 xe:gap-x-4 xe:gap-y-5 xe:sm:grid-cols-3 xe:lg:grid-cols-4 xe:xl:grid-cols-5">
             {rows.map((row, i) => (
               <li key={row.id}>
@@ -278,7 +335,11 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
           <Table className="xe:table-fixed">
             <TableHeader className="xe:[&_tr]:border-b-0">
               <TableRow className="xe:hover:bg-transparent">
-                <TableHead className="xe:h-9 xe:w-auto xe:pl-0 xe:text-xs xe:font-normal xe:text-muted-foreground">
+                {selectable ? <TableHead className="xe:h-9 xe:w-8 xe:pl-0">
+                  <Checkbox aria-label="Select all on this page" checked={allSelected} indeterminate={!allSelected && rows.some((r) => selected.has(r.id))}
+                    onCheckedChange={(on) => setSelected(on ? new Set(rows.map((r) => r.id)) : new Set())} />
+                </TableHead> : null}
+                <TableHead className={cn("xe:h-9 xe:w-auto xe:text-xs xe:font-normal xe:text-muted-foreground", !selectable && "xe:pl-0")}>
                   <button type="button" className="xe:inline-flex xe:items-center xe:gap-1 xe:hover:text-foreground" onClick={() => collection.admin.useAsTitle && toggleSort(collection.admin.useAsTitle)}>
                     {titleLabel} <SortIcon k={collection.admin.useAsTitle ?? ""} />
                   </button>
@@ -290,9 +351,9 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
                 ))}
                 {collection.drafts && <TableHead className="xe:h-9 xe:w-40 xe:text-xs xe:font-normal xe:text-muted-foreground">Status</TableHead>}
                 <TableHead className="xe:h-9 xe:w-32 xe:pr-0 xe:text-right xe:text-xs xe:font-normal xe:text-muted-foreground">
-                  <button type="button" className="xe:inline-flex xe:items-center xe:gap-1 xe:hover:text-foreground" onClick={() => toggleSort("updatedAt")}>
+                  {trashView ? "Deleted" : <button type="button" className="xe:inline-flex xe:items-center xe:gap-1 xe:hover:text-foreground" onClick={() => toggleSort("updatedAt")}>
                     Last edited <SortIcon k="updatedAt" />
-                  </button>
+                  </button>}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -303,14 +364,18 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
                   <TableRow
                     key={row.id}
                     data-state={i === active ? "selected" : undefined}
-                    className="xe:relative xe:cursor-pointer xe:border-rule xe:hover:bg-muted/50 xe:data-[state=selected]:bg-accent"
-                    onClick={() => router.push(adminRoutes.edit(basePath, collection.slug, row.id))}
+                    aria-selected={selectable ? selected.has(row.id) : undefined}
+                    className={cn("xe:relative xe:border-rule xe:hover:bg-muted/50 xe:data-[state=selected]:bg-accent", !trashView && "xe:cursor-pointer")}
+                    onClick={() => { if (!trashView) router.push(adminRoutes.edit(basePath, collection.slug, row.id)); }}
                   >
-                    <TableCell className="xe:py-2.5 xe:pl-0">
+                    {selectable ? <TableCell className="xe:w-8 xe:py-2.5 xe:pl-0" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox aria-label={`Select ${row.title}`} checked={selected.has(row.id)} onCheckedChange={(on) => toggle(row.id, on)} />
+                    </TableCell> : null}
+                    <TableCell className={cn("xe:py-2.5", !selectable && "xe:pl-0")}>
                       <span className="xe:flex xe:min-w-0 xe:items-center xe:gap-2">
-                        <Link href={adminRoutes.edit(basePath, collection.slug, row.id)} className="xe:truncate xe:font-medium" onClick={(e) => e.stopPropagation()}>
+                        {trashView ? <span className="xe:truncate xe:font-medium">{row.title}</span> : <Link href={adminRoutes.edit(basePath, collection.slug, row.id)} className="xe:truncate xe:font-medium" onClick={(e) => e.stopPropagation()}>
                           {row.title}
-                        </Link>
+                        </Link>}
                         <DocPeers collection={collection.slug} id={row.id} />
                       </span>
                       {subtitle ? <p className="xe:truncate xe:text-[13px] xe:text-muted-foreground">{typeof sub === "string" && sub ? sub : "—"}</p> : null}
@@ -325,8 +390,8 @@ export function CollectionListView({ collection, rows, totalDocs, page, totalPag
                         <StatusBadge status={row.status} changed={row.changed} />
                       </TableCell>
                     )}
-                    <TableCell className="xe:pr-0 xe:text-right xe:text-[13px] xe:text-muted-foreground" title={formatDate(row.updatedAt)}>
-                      <span suppressHydrationWarning>{timeAgo(row.updatedAt)}</span>
+                    <TableCell className="xe:pr-0 xe:text-right xe:text-[13px] xe:text-muted-foreground" title={formatDate(row.deletedAt ?? row.updatedAt)}>
+                      <span suppressHydrationWarning>{timeAgo(row.deletedAt ?? row.updatedAt)}</span>
                     </TableCell>
                   </TableRow>
                 );

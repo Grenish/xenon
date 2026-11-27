@@ -24,6 +24,8 @@ export interface DefineCollectionInput<
   drafts?: boolean;
   /** Version history (see `VersionsOption`). Default `false`. */
   versions?: VersionsOption;
+  /** Soft delete with a restorable trash. Default `false`. */
+  trash?: boolean;
   upload?: Up;
   admin?: {
     useAsTitle?: NoInfer<keyof Fs & string>;

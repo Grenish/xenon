@@ -60,6 +60,8 @@ export interface ClientCollection {
   drafts: boolean;
   /** Version history is kept (#15). */
   versions?: boolean;
+  /** Deletes go to a restorable trash (#18). */
+  trash?: boolean;
   /** Publishes and unpublishes can be scheduled (drafts + an adapter with `findDue`, #16). */
   scheduling?: boolean;
   upload: false | { mimeTypes: string[] | null; maxFileSize: number | null };
@@ -202,6 +204,7 @@ export function toClientCollection(collection: AnyCollection, options: { schedul
     slugFrom: collection.slugFrom ?? null,
     drafts: collection.drafts !== false && !upload,
     versions: versionsMax(collection) !== null,
+    trash: collection.trash === true,
     scheduling: options.scheduling === true && collection.drafts !== false && !upload,
     upload: upload
       ? {

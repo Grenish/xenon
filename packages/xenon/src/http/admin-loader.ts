@@ -13,6 +13,7 @@ import {
 import { signPresenceToken } from "../server/presence";
 import type { XenonInstance } from "../server/types";
 import { type ClientCollection, type ClientGlobal, toClientCollection, toClientGlobal } from "../ui/shared/client-config";
+import { type ListFilter, listFiltersToWhere, parseListFilters } from "../ui/shared/list-filters";
 import {
   type AccountSession,
   type AdminDoc,
@@ -69,7 +70,8 @@ export type AdminRouteData =
       totalDocs: number;
       page: number;
       totalPages: number;
-      query: { q: string; status: string; sort: string };
+      /** `status`: `all`, `published`, `draft` or `trash`; `filter`: the applied list filters (#18). */
+      query: { q: string; status: string; sort: string; filter: ListFilter[] };
       shell: AdminShellPayload;
     }
   | {
@@ -175,6 +177,16 @@ export async function unpublishedChangesOnPage(db: XenonConfig["db"], collection
   if (!db || !ids.length) return new Set<string>();
   const records = await db.find({ collection, source: "draft", where: { id: { in: ids } }, limit: ids.length });
   return new Set(records.docs.filter((doc) => doc.status === "published" && doc.draftData !== null).map((doc) => doc.id));
+}
+
+/** When each trashed document on this page was moved to the trash (ISO), by id. */
+async function trashedAtOnPage(db: XenonConfig["db"], collection: string, docs: readonly Pick<SystemFields, "id">[]) {
+  const out = new Map<string, string>();
+  if (!db || !docs.length) return out;
+  const ids = docs.map((doc) => doc.id);
+  const records = await db.find({ collection, source: "draft", trash: "only", where: { id: { in: ids } }, limit: ids.length });
+  for (const record of records.docs) if (record.deletedAt) out.set(record.id, record.deletedAt.toISOString());
+  return out;
 }
 
 function normalizePathPrefix(path: string): string {
@@ -321,11 +333,15 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
     }
 
     const q = queryValue(query, "q")?.trim() ?? "";
-    const status = queryValue(query, "status");
+    const rawStatus = queryValue(query, "status");
+    const trash = rawStatus === "trash" && client.trash === true;
+    const status = trash ? undefined : rawStatus;
+    const filter = parseListFilters(queryValue(query, "filter"), client.fields);
     const page = Math.max(1, Number.parseInt(queryValue(query, "page") ?? "1", 10) || 1);
     const sort = resolveAdminSort(collection, queryValue(query, "sort"));
     const and: Where[] = [];
     if (status === "draft" || status === "published") and.push({ status: { equals: status } });
+    and.push(...listFiltersToWhere(filter));
     if (q) {
       const titleKey = client.admin.useAsTitle;
       and.push({
@@ -341,17 +357,20 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
         ...ctx,
         collection: slug,
         draft: true,
+        ...(trash ? { trash: true } : {}),
         where: and.length ? { and } : undefined,
         sort,
         limit: PAGE_SIZE,
         page,
       });
-      const changed = client.drafts ? await unpublishedChangesOnPage(config.db, slug, res.docs) : undefined;
+      const changed = client.drafts && !trash ? await unpublishedChangesOnPage(config.db, slug, res.docs) : undefined;
+      const deleted = trash ? await trashedAtOnPage(config.db, slug, res.docs) : undefined;
       const rows: AdminListRow[] = res.docs.map((d) => {
         const doc = d as Record<string, unknown>;
         return {
           ...toSummary(collection, doc),
           changed: changed?.has(d.id),
+          ...(deleted?.has(d.id) ? { deletedAt: deleted.get(d.id) } : {}),
           values: Object.fromEntries(client.fields.map((f) => [f.name, doc[f.name] ?? null])),
         };
       });
@@ -362,7 +381,7 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
         totalDocs: res.totalDocs,
         page: res.page,
         totalPages: res.totalPages,
-        query: { q, status: status ?? "all", sort },
+        query: { q, status: trash ? "trash" : (status ?? "all"), sort, filter },
         shell,
       };
     } catch (err) {

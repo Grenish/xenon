@@ -4,7 +4,7 @@ import type { AdminActionInput, AdminActionResult } from "../../http/admin-actio
 import type { AdminRouteData } from "../../http/admin-loader";
 import { toPlainJson } from "../shared/plain";
 import { useAdminRouter } from "../shared/router";
-import type { ActionResult, AdminDoc, AdminServices, AdminVersionPage, SearchResult } from "../shared/services";
+import type { ActionResult, AdminDoc, AdminServices, AdminVersionPage, BulkResult, SearchResult } from "../shared/services";
 
 import { type AdminTheme, themeStore, useAdminTheme } from "./theme-store";
 
@@ -154,6 +154,8 @@ export function useServices(): AdminServices {
       restoreVersion: (input) => run<AdminDoc>({ type: "doc.restoreVersion", ...input }, { refresh: true }),
       schedule: (input) => run<AdminDoc>({ type: "doc.schedule", ...input }, { refresh: true }),
       remove: (input) => run<{ id: string }>({ type: "doc.remove", ...input }, { refresh: true }),
+      duplicate: (input) => run<AdminDoc>({ type: "doc.duplicate", ...input }, { refresh: true }),
+      bulk: (input) => run<BulkResult>({ type: "doc.bulk", ...input }, { refresh: true }),
       get: (input) => run<AdminDoc>({ type: "doc.get", ...input }),
       search: (input) => run<SearchResult>({ type: "doc.search", ...input }),
       saveGlobal: (input) => run<AdminDoc>({ type: "global.save", ...input }, { refresh: true }),

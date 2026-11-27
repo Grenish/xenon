@@ -41,7 +41,7 @@ export const posts = defineCollection({
       type _doc = Expect<Equal<typeof doc.title, string>>;
       type _status = Expect<Equal<typeof doc.status, "draft" | "published">>;
       type _prev = Expect<Equal<typeof previousDoc extends null ? true : false, false>>;
-      type _op = Expect<Equal<typeof operation, "create" | "update" | "unpublish">>;
+      type _op = Expect<Equal<typeof operation, "create" | "update" | "unpublish" | "restore">>;
       const url: string | undefined = doc.links[0]?.url;
       void url;
     },
@@ -83,7 +83,7 @@ export const authors = defineCollection({
           return value?.trim();
         },
         afterChange: ({ operation }) => {
-          type _o = Expect<Equal<typeof operation, "create" | "update" | "unpublish">>;
+          type _o = Expect<Equal<typeof operation, "create" | "update" | "unpublish" | "restore">>;
         },
         // @ts-expect-error - a text field hook cannot return a number
         afterRead: () => 42,

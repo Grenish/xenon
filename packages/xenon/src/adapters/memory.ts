@@ -51,13 +51,18 @@ function matches(record: DocumentRecord, where: Where, source: "published" | "dr
 }
 
 /** Sets or clears an optional schedule column (kept absent when `null`, like the Postgres adapter). */
-function setSchedule(record: DocumentRecord, key: "publishAt" | "unpublishAt", value: Date | null | undefined) {
+function setSchedule(record: DocumentRecord, key: "publishAt" | "unpublishAt" | "deletedAt", value: Date | null | undefined) {
   if (value === undefined) return;
   if (value === null) delete record[key];
   else record[key] = new Date(value);
 }
 
 /** Published reads hide rows whose scheduled unpublish time has passed (even before cron runs). */
+function inTrashScope(record: DocumentRecord, trash: "exclude" | "include" | "only"): boolean {
+  if (trash === "include") return true;
+  return (record.deletedAt != null) === (trash === "only");
+}
+
 function expired(record: DocumentRecord, now: Date): boolean {
   return record.unpublishAt != null && record.unpublishAt.getTime() <= now.getTime();
 }
@@ -118,9 +123,10 @@ export function memoryAdapter(): DatabaseAdapter {
     async find(args) {
       const { collection, source, where = {}, sort = "-createdAt", limit = 10, page = 1 } = args;
       const now = args.now ?? new Date();
+      const trash = args.trash ?? "exclude";
       const descending = sort.startsWith("-");
       const key = descending ? sort.slice(1) : sort;
-      const rows = [...records.values()].filter((row) => row.collection === collection &&
+      const rows = [...records.values()].filter((row) => row.collection === collection && inTrashScope(row, trash) &&
         (source === "draft" || (row.status === "published" && !expired(row, now))) && matches(row, where, source));
       rows.sort((left, right) => {
         const a = valueFor(left, key, source);
@@ -139,12 +145,13 @@ export function memoryAdapter(): DatabaseAdapter {
     async create(input) {
       assertUnique(input);
       const timestamp = new Date();
-      const { publishAt, unpublishAt, ...rest } = input;
+      const { publishAt, unpublishAt, deletedAt, ...rest } = input;
       const record: DocumentRecord = {
         ...structuredClone(rest), id: crypto.randomUUID(), createdAt: timestamp, updatedAt: new Date(timestamp),
       };
       setSchedule(record, "publishAt", publishAt);
       setSchedule(record, "unpublishAt", unpublishAt);
+      setSchedule(record, "deletedAt", deletedAt);
       records.set(record.id, record);
       return structuredClone(record);
     },
@@ -161,6 +168,7 @@ export function memoryAdapter(): DatabaseAdapter {
       if (input.draftData !== undefined) record.draftData = structuredClone(input.draftData);
       setSchedule(record, "publishAt", input.publishAt);
       setSchedule(record, "unpublishAt", input.unpublishAt);
+      setSchedule(record, "deletedAt", input.deletedAt);
       assertUnique(record, id);
       // Strictly increasing, so updatedAt works as the record's version (see DatabaseAdapter.update).
       record.updatedAt = new Date(Math.max(Date.now(), previous.updatedAt.getTime() + 1));
@@ -210,7 +218,7 @@ export function memoryAdapter(): DatabaseAdapter {
         r.unpublishAt && r.status === "published" ? r.unpublishAt.getTime() : Infinity,
       );
       const rows = [...records.values()]
-        .filter((r) => dueAt(r) <= at)
+        .filter((r) => r.deletedAt == null && dueAt(r) <= at)
         .sort((a, b) => dueAt(a) - dueAt(b) || compareStrings(a.id, b.id));
       return structuredClone(limit > 0 ? rows.slice(0, limit) : rows);
     },
