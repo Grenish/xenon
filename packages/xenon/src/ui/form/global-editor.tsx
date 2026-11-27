@@ -1,0 +1,502 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { RiEditLine, RiEyeOffLine, RiLockLine, RiMoreLine, RiSave3Line } from "@remixicon/react";
+import { GLOBALS_COLLECTION } from "../../core/types";
+import { registerDirtyBlocker } from "../admin/dirty-guard";
+import { formatDate, StatusBadge, timeAgo } from "../admin/format";
+import { AvatarStack, displayName, type DocPresence, PersonAvatar, useDocPresence } from "../admin/presence";
+import { useShellBar } from "../admin/shell-bar";
+import { Alert, AlertDescription, AlertTitle } from "../components/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/alert-dialog";
+import { Button } from "../components/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "../components/dropdown-menu";
+import { Kbd } from "../components/kbd";
+import { Spinner } from "../components/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../components/tooltip";
+import { useAdmin } from "../shared/admin-context";
+import type { ClientGlobal } from "../shared/client-config";
+import { useAdminRouter } from "../shared/router";
+import type { ActionResult, AdminDoc } from "../shared/services";
+import { FormRenderer } from "./form-renderer";
+import { initialData, normalizeFormData, validateFields } from "./model";
+
+export function GlobalEditor({ global, doc }: { global: ClientGlobal; doc: AdminDoc | null }) {
+  const { services } = useAdmin();
+  const router = useAdminRouter();
+  const [current, setCurrent] = useState(doc);
+  const [data, setData] = useState<Record<string, unknown>>(() => initialData(global, doc));
+  const [baseline, setBaseline] = useState(() => JSON.stringify(initialData(global, doc)));
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState("");
+  const [pending, setPending] = useState<"save" | "publish" | "unpublish" | null>(null);
+  const [pendingLeave, setPendingLeave] = useState<{ proceed: () => void } | null>(null);
+  const [conflict, setConflict] = useState<{ latest: AdminDoc; draft: boolean } | null>(null);
+  const busy = useRef(false);
+  const leaving = useRef(false);
+  const alertRef = useRef<HTMLDivElement>(null);
+
+  const isDraftsEnabled = global.drafts;
+  const dirty = JSON.stringify(data) !== baseline;
+  const presence = useDocPresence({
+    collection: GLOBALS_COLLECTION,
+    id: global.slug,
+    title: global.label,
+    version: current?.updatedAt ?? null,
+    edit: true,
+  });
+  const readOnly = presence.mode !== "editing";
+  const locked = !!pending || readOnly;
+
+  useEffect(() => {
+    if (!dirty) return;
+    leaving.current = false;
+    const currentHref = location.pathname + location.search + location.hash;
+    const priorState = window.history.state;
+    const hadGuard = Boolean(priorState && typeof priorState === "object" && (priorState as { __xeDirtyGuard?: boolean }).__xeDirtyGuard);
+    const guardedState =
+      priorState && typeof priorState === "object"
+        ? { ...(priorState as Record<string, unknown>), __xeDirtyGuard: true }
+        : { __xeDirtyGuard: true };
+    if (!hadGuard) window.history.pushState(guardedState, "", currentHref);
+
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    const click = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+      if (!target || target.target === "_blank" || target.hasAttribute("download")) return;
+      const destination = new URL(target.href, location.href);
+      if (destination.origin === location.origin && destination.pathname === location.pathname && destination.search === location.search) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const href = destination.origin === location.origin ? destination.pathname + destination.search + destination.hash : destination.href;
+      setPendingLeave({
+        proceed: () => {
+          if (/^https?:/i.test(href)) location.assign(href);
+          else if (!hadGuard) router.replace(href);
+          else router.push(href);
+        },
+      });
+    };
+    const popState = () => {
+      if (leaving.current) return;
+      window.history.pushState(guardedState, "", currentHref);
+      setPendingLeave({
+        proceed: () => {
+          window.history.go(-2);
+        },
+      });
+    };
+    const unregister = registerDirtyBlocker({
+      confirm: (proceed) => setPendingLeave({ proceed: () => proceed(!hadGuard) }),
+    });
+    window.addEventListener("beforeunload", beforeUnload);
+    window.addEventListener("popstate", popState);
+    document.addEventListener("click", click, true);
+    return () => {
+      unregister();
+      window.removeEventListener("beforeunload", beforeUnload);
+      window.removeEventListener("popstate", popState);
+      document.removeEventListener("click", click, true);
+      const onSamePage = location.pathname + location.search + location.hash === currentHref;
+      const onGuard = Boolean(window.history.state && typeof window.history.state === "object" && (window.history.state as { __xeDirtyGuard?: boolean }).__xeDirtyGuard);
+      if (!leaving.current && !hadGuard && onSamePage && onGuard) {
+        window.history.back();
+      }
+    };
+  }, [dirty, router]);
+
+  function showError(result: Extract<ActionResult<unknown>, { ok: false }>) {
+    const fields: Record<string, string> = {};
+    const messages: string[] = [];
+    for (const issue of result.error.issues ?? []) {
+      const root = issue.path[0];
+      if (typeof root === "string" && global.fields.some((field) => field.name === root)) fields[issue.path.join(".")] ??= issue.message;
+      else messages.push(issue.message);
+    }
+    setFieldErrors(fields);
+    setFormError(messages.length ? [...new Set(messages)].join(" ") : Object.keys(fields).length ? "Please check the highlighted fields." : result.error.message);
+    toast.error(result.error.message);
+    requestAnimationFrame(() => alertRef.current?.focus());
+  }
+
+  function accept(saved: AdminDoc) {
+    const next = initialData(global, saved);
+    setCurrent(saved);
+    setData(next);
+    setBaseline(JSON.stringify(next));
+    setFieldErrors({});
+    setFormError("");
+  }
+
+  async function save(draft: boolean, expectedUpdatedAt = current?.updatedAt) {
+    if (busy.current || readOnly) return;
+    const errors = validateFields(global.fields, data, draft);
+    setFieldErrors(errors);
+    setFormError("");
+    if (Object.keys(errors).length) {
+      setFormError("Please check the highlighted fields.");
+      requestAnimationFrame(() => alertRef.current?.focus());
+      return;
+    }
+    busy.current = true;
+    setPending(draft ? "save" : "publish");
+    try {
+      const payload = normalizeFormData(global.fields, data);
+      const result = await services.saveGlobal({
+        slug: global.slug,
+        data: payload,
+        draft,
+        expectedUpdatedAt,
+      });
+      if (!result.ok) {
+        if (current && isStale(result)) {
+          const latest = await services.getGlobal({ slug: global.slug });
+          if (latest.ok && latest.data) {
+            setConflict({ latest: latest.data, draft });
+            return;
+          }
+        }
+        showError(result);
+        return;
+      }
+      accept(result.data);
+      toast.success(draft ? "Draft saved" : isDraftsEnabled ? "Published" : "Changes saved");
+    } catch {
+      setFormError("Your changes could not be saved. Check your connection and try again.");
+      toast.error("Could not save changes");
+    } finally {
+      busy.current = false;
+      setPending(null);
+    }
+  }
+
+  async function unpublish() {
+    if (!current || busy.current) return;
+    busy.current = true;
+    setPending("unpublish");
+    try {
+      const result = await services.unpublishGlobal({ slug: global.slug });
+      if (!result.ok) {
+        showError(result);
+        return;
+      }
+      setCurrent(result.data);
+      if (!dirty) accept(result.data);
+      toast.success("Unpublished");
+    } catch {
+      toast.error("Could not unpublish. Try again.");
+    } finally {
+      busy.current = false;
+      setPending(null);
+    }
+  }
+
+  // Refresh automatically when a teammate saves a newer version while this tab is clean.
+  const newest = presence.peers.reduce<string | null>((max, p) => (p.version && (!max || p.version > max) ? p.version : max), null);
+  const fetched = useRef<string | null>(null);
+  useEffect(() => {
+    if (!newest || dirty || pending || (current && newest <= current.updatedAt) || fetched.current === newest) return;
+    fetched.current = newest;
+    const by = presence.peers.find((p) => p.version === newest);
+    void services.getGlobal({ slug: global.slug }).then((result) => {
+      if (!result.ok || !result.data || (current && result.data.updatedAt <= current.updatedAt)) return;
+      accept(result.data);
+      toast(`${by ? displayName(by.user) : "Someone"} saved changes`, { description: "You're seeing the latest version." });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newest, dirty, pending, current?.updatedAt]);
+
+  const shortcut = useRef(save);
+  shortcut.current = save;
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.altKey || event.repeat) return;
+      if (event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"]')) return;
+      if (event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        event.stopPropagation();
+        void shortcut.current(isDraftsEnabled);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        void shortcut.current(false);
+      }
+    };
+    window.addEventListener("keydown", keydown, true);
+    return () => window.removeEventListener("keydown", keydown, true);
+  }, [isDraftsEnabled]);
+
+  const change = (name: string, value: unknown) => {
+    setData((previous) => ({ ...previous, [name]: value }));
+    setFieldErrors((previous) => {
+      const stale = Object.keys(previous).filter((key) => key === name || key.startsWith(`${name}.`));
+      if (!stale.length) return previous;
+      const next = { ...previous };
+      for (const key of stale) delete next[key];
+      return next;
+    });
+  };
+
+  const conflictAuthor = conflict
+    ? (() => {
+        const p = presence.peers.find((peer) => peer.version === conflict.latest.updatedAt);
+        return p ? displayName(p.user) : null;
+      })()
+    : null;
+  const saveState = readOnly
+    ? "Read-only"
+    : pending === "unpublish"
+      ? "Unpublishing…"
+      : pending
+        ? "Saving…"
+        : dirty
+          ? "Unsaved changes"
+          : current
+            ? `Saved ${timeAgo(current.updatedAt)}`
+            : "Not saved yet";
+
+  const mainFields = global.fields.filter((field) => field.admin.position !== "sidebar");
+  const sidebarFields = global.fields.filter((field) => field.admin.position === "sidebar");
+  const visibleSidebar = sidebarFields.some((field) => !field.admin.hidden);
+  const canUnpublish = isDraftsEnabled && current?.status === "published";
+  const showMoreMenu = isDraftsEnabled;
+
+  useShellBar({
+    crumbs: [{ label: global.admin.group ?? "Globals" }, { label: global.label }],
+    status: (
+      <>
+        {presence.peers.length ? <AvatarStack peers={presence.peers} max={3} ringClass="xe:ring-frame" /> : null}
+        {isDraftsEnabled ? (
+          <StatusBadge
+            status={current?.status ?? "draft"}
+            changed={current?.hasUnpublishedChanges || (dirty && current?.status === "published")}
+            className="xe:hidden xe:sm:inline-flex"
+          />
+        ) : null}
+        <p className="xe:hidden xe:text-[13px] xe:text-muted-foreground xe:md:block" aria-live="polite" suppressHydrationWarning>
+          {saveState}
+        </p>
+      </>
+    ),
+    actions: readOnly ? (
+      <div className="xe:flex xe:items-center xe:gap-1.5">
+        <Button type="button" onClick={presence.takeover}>
+          <RiEditLine data-icon="inline-start" />
+          {presence.mode === "taken" && !presence.holder ? "Continue editing" : "Take over"}
+        </Button>
+      </div>
+    ) : (
+      <div className="xe:flex xe:items-center xe:gap-1.5">
+        {isDraftsEnabled ? (
+          <Button type="button" variant="outline" className="xe:hidden xe:sm:inline-flex" disabled={!!pending} onClick={() => void save(true)}>
+            {pending === "save" ? <Spinner /> : null}Save draft
+          </Button>
+        ) : null}
+        <Button type="button" disabled={!!pending} onClick={() => void save(false)}>
+          {pending === "publish" ? <Spinner /> : null}
+          {isDraftsEnabled ? "Publish" : "Save"}
+        </Button>
+        {showMoreMenu ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="More global actions"
+                  disabled={!!pending}
+                  className={canUnpublish ? undefined : "xe:sm:hidden"}
+                />
+              }
+            >
+              <RiMoreLine />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuGroup>
+                <DropdownMenuItem className="xe:sm:hidden" onClick={() => void save(true)}>
+                  <RiSave3Line />Save draft
+                </DropdownMenuItem>
+                {canUnpublish ? (
+                  <DropdownMenuItem onClick={() => void unpublish()}>
+                    <RiEyeOffLine />Unpublish
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
+    ),
+  });
+
+  const hasPublishing = isDraftsEnabled || !!current;
+
+  return (
+    <div data-xe-full className="xe:flex xe:flex-col xe:lg:grid xe:lg:min-h-[calc(100dvh-3.5rem-2px)] xe:lg:grid-cols-[minmax(0,1fr)_21rem]">
+      <div className="xe:flex xe:min-w-0 xe:flex-col xe:gap-6 xe:px-4 xe:pt-6 xe:pb-10 xe:sm:px-8 xe:lg:pt-10">
+        {readOnly ? <GlobalLockBanner presence={presence} label={global.label} dirty={dirty} /> : null}
+        {formError ? (
+          <Alert ref={alertRef} tabIndex={-1} variant="destructive" className="xe:mx-auto xe:w-full xe:max-w-[46rem]">
+            <AlertTitle>We couldn’t save your changes</AlertTitle>
+            <AlertDescription>{formError}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        <section className="xe:mx-auto xe:flex xe:w-full xe:max-w-[46rem] xe:flex-col xe:gap-5">
+          <div className="xe:flex xe:flex-col xe:gap-1">
+            <h1 className="xe:text-[22px] xe:font-semibold xe:leading-tight xe:tracking-[-0.01em]">{global.label}</h1>
+            {global.admin.description ? <p className="xe:text-sm xe:text-muted-foreground">{global.admin.description}</p> : null}
+          </div>
+          <FormRenderer fields={mainFields} data={data} disabled={locked} errors={fieldErrors} onChange={change} />
+        </section>
+      </div>
+
+      <aside aria-label="Properties" className="xe:flex xe:flex-col xe:border-t xe:border-border xe:bg-background xe:lg:sticky xe:lg:top-0 xe:lg:h-[calc(100dvh-3.5rem-2px)] xe:lg:overflow-y-auto xe:lg:border-t-0 xe:lg:border-l xe:lg:[scrollbar-width:thin]">
+        {hasPublishing ? (
+          <section className="xe:flex xe:flex-col xe:gap-3 xe:border-b xe:border-border xe:px-5 xe:py-4">
+            <h2 className="xe:text-[13px] xe:font-semibold">Publishing</h2>
+            <dl className="xe:flex xe:flex-col xe:gap-2.5 xe:text-[13px]">
+              {isDraftsEnabled ? (
+                <div className="xe:flex xe:items-center xe:justify-between xe:gap-2 xe:sm:hidden">
+                  <dt className="xe:text-muted-foreground">Status</dt>
+                  <dd><StatusBadge status={current?.status ?? "draft"} changed={current?.hasUnpublishedChanges} /></dd>
+                </div>
+              ) : null}
+              <div className="xe:flex xe:items-center xe:justify-between xe:gap-3">
+                <dt className="xe:text-muted-foreground">Slug</dt>
+                <dd className="xe:font-mono xe:text-xs xe:text-foreground">{global.slug}</dd>
+              </div>
+              {current ? (
+                <div className="xe:flex xe:items-center xe:justify-between xe:gap-3">
+                  <dt className="xe:text-muted-foreground">Updated</dt>
+                  <dd>
+                    <Tooltip>
+                      <TooltipTrigger render={<time dateTime={current.updatedAt} tabIndex={0} suppressHydrationWarning />}>
+                        {timeAgo(current.updatedAt)}
+                      </TooltipTrigger>
+                      <TooltipContent>{formatDate(current.updatedAt)}</TooltipContent>
+                    </Tooltip>
+                  </dd>
+                </div>
+              ) : null}
+              {current ? (
+                <div className="xe:flex xe:items-center xe:justify-between xe:gap-3">
+                  <dt className="xe:text-muted-foreground">Created</dt>
+                  <dd>
+                    <Tooltip>
+                      <TooltipTrigger render={<time dateTime={current.createdAt} tabIndex={0} suppressHydrationWarning />}>
+                        {timeAgo(current.createdAt)}
+                      </TooltipTrigger>
+                      <TooltipContent>{formatDate(current.createdAt)}</TooltipContent>
+                    </Tooltip>
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </section>
+        ) : null}
+        {visibleSidebar ? (
+          <section className="xe:flex xe:flex-col xe:gap-4 xe:px-5 xe:py-4">
+            <h2 className="xe:text-[13px] xe:font-semibold">Details</h2>
+            <FormRenderer fields={sidebarFields} data={data} onChange={change} errors={fieldErrors} disabled={locked} />
+          </section>
+        ) : null}
+        <div className="xe:mt-auto xe:flex xe:flex-col xe:gap-1.5 xe:border-t xe:border-border xe:bg-muted/60 xe:px-5 xe:py-3 xe:text-xs xe:text-muted-foreground">
+          <p>{isDraftsEnabled ? <><Kbd>⌘S</Kbd> save draft · <Kbd>⌘↵</Kbd> publish</> : <><Kbd>⌘S</Kbd> save</>}</p>
+        </div>
+      </aside>
+
+      <AlertDialog open={conflict !== null} onOpenChange={(open) => { if (!open) setConflict(null); }}>
+        <AlertDialogContent className="xe:data-[size=default]:max-w-[calc(100%-2rem)] xe:data-[size=default]:sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{global.label} changed while you were editing</AlertDialogTitle>
+            <AlertDialogDescription>
+              {conflictAuthor ? `${conflictAuthor} saved` : "A newer version was saved"} {conflict ? timeAgo(conflict.latest.updatedAt) : ""}. Saving now would overwrite their changes. Keep your version, or load theirs and lose your unsaved edits.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button type="button" variant="outline" onClick={() => { if (conflict) { accept(conflict.latest); toast("Loaded the latest version"); } setConflict(null); }}>
+              Load their version
+            </Button>
+            <AlertDialogAction variant="destructive" onClick={() => { const c = conflict; setConflict(null); if (c) void save(c.draft, c.latest.updatedAt); }}>
+              Overwrite with mine
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={pendingLeave !== null} onOpenChange={(open) => { if (!open) setPendingLeave(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have changes to “{global.label}” that haven’t been saved. If you leave now, they’ll be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                const next = pendingLeave;
+                leaving.current = true;
+                setPendingLeave(null);
+                setBaseline(JSON.stringify(data));
+                next?.proceed();
+              }}
+            >
+              Discard changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function isStale(result: Extract<ActionResult<unknown>, { ok: false }>): boolean {
+  return result.error.code === "CONFLICT" && (result.error.issues ?? []).some((issue) => issue.path[0] === "updatedAt");
+}
+
+function GlobalLockBanner({ presence, label, dirty }: { presence: DocPresence; label: string; dirty: boolean }) {
+  const { user } = useAdmin();
+  const holder = presence.holder;
+  const self = !!holder && holder.user.id === user.id;
+  const taker = presence.takenOverBy;
+  const name = holder ? displayName(holder.user) : taker ? displayName(taker.user) : "Someone";
+  const title = presence.mode === "taken"
+    ? `${taker ? displayName(taker.user) : "Someone"} took over editing ${timeAgo(new Date(taker?.at ?? Date.now()).toISOString())}`
+    : self
+      ? `You're editing ${label} in another tab`
+      : `${name} is editing ${label}`;
+  const detail = presence.mode === "taken"
+    ? dirty
+      ? "Your unsaved changes are still here. Take back editing to save them; if they saved in the meantime, you'll be asked which version to keep."
+      : "You're viewing it read-only. Their saves appear here automatically."
+    : self
+      ? "This tab is read-only so the two copies can't overwrite each other. Take over to edit here instead."
+      : "You're viewing it read-only. Their saves appear here automatically. Take over if they've stepped away.";
+  const person = holder?.user ?? taker?.user;
+  return (
+    <div role="status" className="xe:mx-auto xe:flex xe:w-full xe:max-w-[46rem] xe:items-start xe:gap-3 xe:rounded-lg xe:border xe:border-border xe:bg-muted xe:px-4 xe:py-3">
+      {person ? <PersonAvatar user={person} editing={!!holder} className="xe:mt-0.5 xe:ring-muted" /> : <RiLockLine className="xe:mt-0.5 xe:size-5 xe:text-muted-foreground" aria-hidden />}
+      <div className="xe:flex xe:min-w-0 xe:flex-col xe:gap-0.5">
+        <p className="xe:text-sm xe:font-medium">{title}</p>
+        <p className="xe:text-[13px] xe:text-muted-foreground">{detail}</p>
+      </div>
+    </div>
+  );
+}

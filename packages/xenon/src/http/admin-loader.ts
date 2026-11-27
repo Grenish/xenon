@@ -1,6 +1,7 @@
 import type { Where } from "../adapters/types";
 import { resolveSecret } from "../auth";
 import { isXenonError } from "../core/errors";
+import { type AnyGlobal, getGlobal } from "../core/global";
 import {
   type AnyCollection,
   SYSTEM_KEYS,
@@ -11,7 +12,7 @@ import {
 } from "../core/types";
 import { signPresenceToken } from "../server/presence";
 import type { XenonInstance } from "../server/types";
-import { type ClientCollection, toClientCollection } from "../ui/shared/client-config";
+import { type ClientCollection, type ClientGlobal, toClientCollection, toClientGlobal } from "../ui/shared/client-config";
 import {
   type AccountSession,
   type AdminDoc,
@@ -28,6 +29,7 @@ import {
   dispatchAdminAction,
   getHttpXenon,
   loadAdminDoc,
+  loadAdminGlobal,
   toSummary,
 } from "./admin-action";
 import { loadDashboard } from "./dashboard-data";
@@ -47,6 +49,7 @@ export interface AdminShellPayload {
   basePath: string;
   apiPath: string;
   collections: ClientCollection[];
+  globals?: ClientGlobal[];
   user: AdminUserInfo | null;
   presenceToken: string | null;
   /** `true` when the configured storage adapter supports direct presigned uploads. */
@@ -78,6 +81,12 @@ export type AdminRouteData =
       kind: "document-edit";
       collection: ClientCollection;
       doc: AdminDoc;
+      shell: AdminShellPayload;
+    }
+  | {
+      kind: "global-edit";
+      global: ClientGlobal;
+      doc: AdminDoc | null;
       shell: AdminShellPayload;
     }
   | {
@@ -149,6 +158,17 @@ export async function filterReadableCollections(config: XenonConfig, user: Xenon
   return checked.filter((c): c is AnyCollection => c !== null);
 }
 
+export async function canReadGlobal(global: AnyGlobal, user: XenonUser): Promise<boolean> {
+  const fn = global.access?.read;
+  if (!fn) return true;
+  return Boolean(await fn({ user }));
+}
+
+export async function filterReadableGlobals(config: XenonConfig, user: XenonUser): Promise<AnyGlobal[]> {
+  const checked = await Promise.all((config.globals ?? []).map(async (g) => ((await canReadGlobal(g, user)) ? g : null)));
+  return checked.filter((g): g is AnyGlobal => g !== null);
+}
+
 /** Look up working copies only for published documents on this access-checked page. */
 export async function unpublishedChangesOnPage(db: XenonConfig["db"], collection: string, docs: readonly Pick<SystemFields, "id" | "status">[]) {
   const ids = docs.filter((doc) => doc.status === "published").map((doc) => doc.id);
@@ -212,6 +232,7 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
   const base = config.admin.path;
   const theme = options.theme ?? parseThemeCookie(headers.get("cookie"));
   const allCollections = config.collections.map(toClientCollection);
+  const allGlobals = (config.globals ?? []).map(toClientGlobal);
   const [section, slug, id, ...rest] = segments;
 
   const user = await xenon.getUser(headers);
@@ -229,6 +250,7 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
         basePath: base,
         apiPath: config.api.path,
         collections: [],
+        globals: [],
         user: null,
         presenceToken: null,
         presignedUploads: false,
@@ -241,9 +263,14 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
 
   const userInfo: AdminUserInfo = { id: user.id, email: user.email, name: user.name ?? null, role: user.role };
   const ctx = { user, overrideAccess: false } as const;
-  const readable = await filterReadableCollections(config, user);
+  const [readable, readableGlobals] = await Promise.all([
+    filterReadableCollections(config, user),
+    filterReadableGlobals(config, user),
+  ]);
   const readableSlugs = new Set(readable.map((c) => c.slug));
+  const readableGlobalSlugs = new Set(readableGlobals.map((g) => g.slug));
   const visibleCollections = allCollections.filter((c) => readableSlugs.has(c.slug));
+  const visibleGlobals = allGlobals.filter((g) => readableGlobalSlugs.has(g.slug));
   const presenceToken = config.presence === false
     ? null
     : await signPresenceToken(resolveSecret(config), { id: user.id, name: user.name ?? null, email: user.email });
@@ -252,6 +279,7 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
     basePath: base,
     apiPath: config.api.path,
     collections: visibleCollections,
+    globals: visibleGlobals,
     user: userInfo,
     presenceToken,
     presignedUploads: xenon.supportsPresignedUploads,
@@ -339,6 +367,25 @@ export async function loadAdminData(options: LoadAdminDataOptions): Promise<Admi
     } catch (err) {
       if (isXenonError(err) && err.code === "FORBIDDEN") {
         return { kind: "access-denied", label: client.labels.plural.toLowerCase(), shell };
+      }
+      throw err;
+    }
+  }
+
+  // ------------------------------------------------------------------ globals
+  if (section === "globals" && slug) {
+    const global = getGlobal(config, slug);
+    const clientGlobal = allGlobals.find((g) => g.slug === slug);
+    if (!global || !clientGlobal || id !== undefined) return { kind: "not-found", shell };
+    if (!readableGlobalSlugs.has(slug)) {
+      return { kind: "access-denied", label: clientGlobal.label.toLowerCase(), shell };
+    }
+    try {
+      const doc = await loadAdminGlobal(xenon, config, slug, user);
+      return { kind: "global-edit", global: clientGlobal, doc, shell };
+    } catch (err) {
+      if (isXenonError(err) && err.code === "FORBIDDEN") {
+        return { kind: "access-denied", label: clientGlobal.label.toLowerCase(), shell };
       }
       throw err;
     }

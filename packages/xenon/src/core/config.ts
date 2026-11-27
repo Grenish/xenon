@@ -1,3 +1,5 @@
+import type { AnyGlobal } from "./global";
+import { validateGlobalsConfig } from "./global";
 import type { AnyCollection, Field, XenonConfig, XenonConfigInput } from "./types";
 import { SYSTEM_KEYS, UPLOAD_KEYS } from "./types";
 import { CONDITION_OPERATORS } from "./condition";
@@ -10,8 +12,8 @@ export class XenonConfigError extends Error {
 
 const SLUG_RE = /^[a-z][a-z0-9-]*$/;
 const RESERVED_KEYS = new Set<string>(SYSTEM_KEYS);
-/** Collide with REST routes (`{api}/auth/*`). `_`-prefixed slugs are already invalid. */
-const RESERVED_COLLECTION_SLUGS = new Set(["auth"]);
+/** Collide with REST routes (`{api}/auth/*`, `{api}/globals/*`). `_`-prefixed slugs are already invalid. */
+const RESERVED_COLLECTION_SLUGS = new Set(["auth", "globals"]);
 const UPLOAD_KEY_SET = new Set<string>(UPLOAD_KEYS);
 
 function fail(collection: string, path: string | null, message: string): never {
@@ -230,9 +232,12 @@ function validateCollection(c: AnyCollection, bySlug: Map<string, AnyCollection>
  * Defines the XenonCMS config. Validates the collection graph eagerly so mistakes
  * surface at boot (or build) time instead of on the first request.
  */
-export function defineConfig<const Cs extends readonly AnyCollection[]>(
-  config: XenonConfigInput<Cs>,
-): XenonConfig<Cs> {
+export function defineConfig<
+  const Cs extends readonly AnyCollection[],
+  const Gs extends readonly AnyGlobal[] = readonly [],
+>(
+  config: XenonConfigInput<Cs, Gs>,
+): XenonConfig<Cs, Gs> {
   const bySlug = new Map<string, AnyCollection>();
   for (const c of config.collections) {
     if (typeof c.slug !== "string" || !SLUG_RE.test(c.slug)) {
@@ -249,9 +254,11 @@ export function defineConfig<const Cs extends readonly AnyCollection[]>(
     bySlug.set(c.slug, c);
   }
   for (const c of config.collections) validateCollection(c, bySlug);
+  validateGlobalsConfig(config.globals, bySlug, validateFields, (msg) => new XenonConfigError(msg));
 
   return {
     ...config,
+    globals: (config.globals ?? []) as Gs,
     admin: { path: normalizePath(config.admin?.path ?? "/admin") },
     api: { path: normalizePath(config.api?.path ?? "/api/xenon") },
   };

@@ -16,7 +16,8 @@ const UPLOAD_KEY_SET = new Set<string>(UPLOAD_KEYS);
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-const isUpload = (c: AnyCollection) => c.upload !== undefined && c.upload !== false;
+type FieldContainer = { fields: FieldsMap; upload?: AnyCollection["upload"] };
+const isUpload = (c: FieldContainer) => c.upload !== undefined && c.upload !== false;
 
 function indexTypeForField(field: Field): FieldIndexType | null {
   switch (field.type) {
@@ -124,7 +125,7 @@ function validateSelectFields(
   }
 }
 
-export function validateSelect(collection: AnyCollection, select: unknown): RuntimeSelect {
+export function validateSelect(collection: FieldContainer, select: unknown): RuntimeSelect {
   if (!isPlainObject(select)) {
     throw new XenonError("BAD_REQUEST", "select must be an object.");
   }
@@ -253,7 +254,7 @@ function validatePopulateFields(
 
 /** Validates a populate tree and returns every target collection it references (for access checks). */
 export function validatePopulate(
-  collection: AnyCollection,
+  collection: FieldContainer,
   populate: unknown,
   getCollection: (slug: string) => AnyCollection | undefined,
 ): { spec: RuntimePopulate; targets: Set<AnyCollection> } {
@@ -267,7 +268,7 @@ export function validatePopulate(
 
 /** True when any target collection referenced in `populate` defines a custom `access.read` policy. */
 export function populatesRestrictedCollection(
-  collection: AnyCollection,
+  collection: FieldContainer,
   populate: unknown,
   getCollection: (slug: string) => AnyCollection | undefined,
 ): boolean {
@@ -540,7 +541,7 @@ function applyResolvedToContainers(
  * target collection per depth level (zero N+1), reusing already-fetched records across levels.
  */
 export async function populateDocs(args: {
-  collection: AnyCollection;
+  collection: FieldContainer;
   docs: AnyDoc[];
   spec: RuntimePopulate;
   draft: boolean;

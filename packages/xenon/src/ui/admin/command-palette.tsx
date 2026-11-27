@@ -5,6 +5,7 @@ import {
   RiComputerLine,
   RiCornerDownLeftLine,
   RiDashboardLine,
+  RiGlobalLine,
   RiMoonLine,
   RiSearchLine,
   RiSunLine,
@@ -46,7 +47,7 @@ function useDebounced<T>(value: T, ms: number): T {
 
 /** ⌘K: jump anywhere, create documents, search content across collections. */
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange(open: boolean): void }) {
-  const { basePath, collections, user, services } = useAdmin();
+  const { basePath, collections, globals, user, services } = useAdmin();
   const { setTheme } = useAdminRuntime();
   const router = useAdminRouter();
   const [query, setQuery] = useState("");
@@ -73,6 +74,9 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     for (const c of collections) {
       items.push({ id: `nav:${c.slug}`, group: "Go to", label: c.labels.plural, icon: collectionIcon(c), run: go(adminRoutes.list(basePath, c.slug)) });
     }
+    for (const g of globals) {
+      items.push({ id: `global:${g.slug}`, group: "Go to", label: g.label, icon: RiGlobalLine, run: go(adminRoutes.global(basePath, g.slug)) });
+    }
     if (user.role === "admin") items.push({ id: "nav:users", group: "Go to", label: "Team", icon: RiTeamLine, run: go(adminRoutes.users(basePath)) });
     items.push({ id: "nav:settings", group: "Go to", label: "Settings", icon: RiSettings3Line, run: go(adminRoutes.settings(basePath)) });
     items.push({ id: "nav:appearance", group: "Go to", label: "Appearance settings", icon: RiPaletteLine, run: go(adminRoutes.settings(basePath, "appearance")) });
@@ -90,7 +94,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     );
     return items;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basePath, collections, user.role]);
+  }, [basePath, collections, globals, user.role]);
 
   useEffect(() => {
     if (debounced.length < 2) {

@@ -3,6 +3,17 @@
  */
 import type { PaginatedResult, StoredFile, Where } from "../adapters/types";
 import type {
+  AnyGlobal,
+  GlobalBySlug,
+  GlobalSlug,
+  InferGlobalDraftInput,
+  InferGlobalType,
+  InferGlobalUpdateInput,
+  InferQueryGlobalType,
+  PopulateGlobalInput,
+  SelectGlobalInput,
+} from "../core/global";
+import type {
   AnyCollection,
   CollectionBySlug,
   HookContext,
@@ -24,6 +35,8 @@ export type XenonOperation = "create" | "update" | "delete";
 
 export interface XenonChangeEvent {
   collection: string;
+  /** Set when the change is to a global singleton (its global slug). */
+  global?: string;
   id: string;
   op: XenonOperation | "unpublish";
   /** `true` when the write only touched the draft (`draft: true` save): published content is unchanged. */
@@ -58,6 +71,49 @@ export type QueryDocOf<Cfg, S extends Slug<Cfg>, Sel = undefined, Pop = undefine
 
 type SelectArg<Cfg, S extends Slug<Cfg>> = string extends S ? RuntimeSelect : SelectInput<Coll<Cfg, S>>;
 type PopulateArg<Cfg, S extends Slug<Cfg>> = string extends S ? RuntimePopulate : PopulateInput<Cfg, S>;
+
+type GSlug<Cfg> = GlobalSlug<Cfg> & string;
+type Glob<Cfg, S extends GSlug<Cfg>> = GlobalBySlug<Cfg, S> extends infer G extends AnyGlobal ? G : never;
+export type GlobalDocOf<Cfg, S extends GSlug<Cfg>> = InferGlobalType<Glob<Cfg, S>>;
+export type QueryGlobalDocOf<Cfg, S extends GSlug<Cfg>, Sel = undefined, Pop = undefined> = InferQueryGlobalType<
+  Cfg,
+  Glob<Cfg, S>,
+  Sel,
+  Pop
+>;
+
+type SelectGlobalArg<Cfg, S extends GSlug<Cfg>> = string extends Glob<Cfg, S>["slug"] ? RuntimeSelect : SelectGlobalInput<Glob<Cfg, S>>;
+type PopulateGlobalArg<Cfg, S extends GSlug<Cfg>> = string extends Glob<Cfg, S>["slug"] ? RuntimePopulate : PopulateGlobalInput<Cfg, S>;
+
+export interface GetGlobalOptions<
+  Cfg,
+  S extends GSlug<Cfg>,
+  Sel extends SelectGlobalArg<Cfg, S> | undefined = undefined,
+  Pop extends PopulateGlobalArg<Cfg, S> | undefined = undefined,
+> extends CallContext {
+  slug: S;
+  /** Read working copy (`draftData ?? data`) even when not yet published. Default `false`. */
+  draft?: boolean;
+  /** Inclusion projection over returned global fields (`id` is always preserved). */
+  select?: Sel;
+  /** Explicit batched population of `relation` / `media` fields (zero N+1). */
+  populate?: Pop;
+}
+
+export interface UpdateGlobalOptions<Cfg, S extends GSlug<Cfg>> extends CallContext {
+  slug: S;
+  data: InferGlobalUpdateInput<Glob<Cfg, S>> | InferGlobalDraftInput<Glob<Cfg, S>>;
+  draft?: boolean;
+  /**
+   * Optimistic concurrency: the `updatedAt` of the version the caller edited. When the global has
+   * been saved since, the update is refused with a `CONFLICT` error instead of overwriting.
+   */
+  expectedUpdatedAt?: string | Date;
+}
+
+export interface UnpublishGlobalOptions<Cfg, S extends GSlug<Cfg>> extends CallContext {
+  slug: S;
+}
 
 export interface FindOptions<
   Cfg,
@@ -250,6 +306,19 @@ export interface XenonInstance<Cfg extends XenonConfig = XenonConfig> {
 
   /** Collection definition by slug, or `undefined`. */
   getCollection(slug: string): AnyCollection | undefined;
+
+  /** Read a singleton global document (`null` when never saved or unpublished and `draft` is false). */
+  getGlobal<
+    S extends GSlug<Cfg>,
+    const Sel extends SelectGlobalArg<Cfg, S> | undefined = undefined,
+    const Pop extends PopulateGlobalArg<Cfg, S> | undefined = undefined,
+  >(
+    options: GetGlobalOptions<Cfg, S, Sel, Pop>,
+  ): Promise<QueryGlobalDocOf<Cfg, S, Sel, Pop> | null>;
+  /** Create (first write) or update a singleton global document. */
+  updateGlobal<S extends GSlug<Cfg>>(options: UpdateGlobalOptions<Cfg, S>): Promise<GlobalDocOf<Cfg, S>>;
+  /** Unpublish a singleton global document (requires drafts enabled). */
+  unpublishGlobal<S extends GSlug<Cfg>>(options: UnpublishGlobalOptions<Cfg, S>): Promise<GlobalDocOf<Cfg, S>>;
 
   /** BetterAuth instance; `null` if the config has no `db`. */
   getAuth(): Promise<XenonAuth | null>;

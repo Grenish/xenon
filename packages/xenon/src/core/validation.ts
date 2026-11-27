@@ -334,7 +334,7 @@ interface ObjectExtras {
  * checks and custom `validate` hooks run in a single pass, so every error is reported at once. (Zod's
  * object-level refinements are skipped once a nested check aborts.) Unknown keys are rejected.
  */
-function fieldsSchema(fieldsMap: FieldsMap, mode: ValidationMode, extras: ObjectExtras = {}): z.ZodType {
+export function fieldsSchema(fieldsMap: FieldsMap, mode: ValidationMode, extras: ObjectExtras = {}): z.ZodType {
   const fields = fieldsMap as Record<string, Field>;
   const shape: Record<string, z.ZodType> = {};
   // Fields with an `admin.condition` are checked after the object parse, against their siblings:

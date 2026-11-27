@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { PresenceLocation, PresencePeer, PresenceSnapshot, PresenceUser } from "../../adapters/types";
+import { GLOBALS_COLLECTION } from "../../core/types";
 import { cn } from "../lib/utils";
 import { useAdmin } from "../shared/admin-context";
 import { useAdminPathname } from "../shared/router";
@@ -141,11 +142,23 @@ export function PresenceHeartbeat({ token }: { token: string | null }) {
   // Where this tab is, from the route; the editor adds the title and version.
   const location = useMemo<PresenceLocation | null>(() => {
     const prefix = `${basePath}/collections/`;
-    if (!pathname.startsWith(prefix)) return null;
-    const [collection, id] = pathname.slice(prefix.length).split("/");
-    if (!collection) return null;
-    if (!id || id === "new") return { collection };
-    return { collection, id, title: doc && doc.collection === collection && doc.id === id ? doc.title.slice(0, 160) : undefined };
+    if (pathname.startsWith(prefix)) {
+      const [collection, id] = pathname.slice(prefix.length).split("/");
+      if (!collection) return null;
+      if (!id || id === "new") return { collection };
+      return { collection, id, title: doc && doc.collection === collection && doc.id === id ? doc.title.slice(0, 160) : undefined };
+    }
+    const globalPrefix = `${basePath}/globals/`;
+    if (pathname.startsWith(globalPrefix)) {
+      const [slug] = pathname.slice(globalPrefix.length).split("/");
+      if (!slug) return null;
+      return {
+        collection: GLOBALS_COLLECTION,
+        id: slug,
+        title: doc && doc.collection === GLOBALS_COLLECTION && doc.id === slug ? doc.title.slice(0, 160) : undefined,
+      };
+    }
+    return null;
   }, [pathname, basePath, doc]);
   const registered = doc && location?.id && doc.collection === location.collection && doc.id === location.id ? doc : null;
   const intent = registered?.intent ?? "view";

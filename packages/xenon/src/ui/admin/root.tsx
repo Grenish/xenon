@@ -4,7 +4,7 @@ import { Toaster } from "../components/sonner";
 import { TooltipProvider } from "../components/tooltip";
 import { PortalContainerProvider } from "../lib/portal-container";
 import { AdminProvider } from "../shared/admin-context";
-import type { ClientCollection } from "../shared/client-config";
+import type { ClientCollection, ClientGlobal } from "../shared/client-config";
 import { type AdminRouter, AdminRouterProvider } from "../shared/router";
 import type { AdminUserInfo } from "../shared/services";
 import { type AdminAction, AdminRuntimeProvider, useServices } from "./runtime";
@@ -21,6 +21,7 @@ export interface AdminRootProps {
   /** Optional host router adapter (defaults to an outer `<AdminRouterProvider>` or the built-in History API router). */
   router?: AdminRouter;
   collections: ClientCollection[];
+  globals?: ClientGlobal[];
   user: AdminUserInfo | null;
   /** Signed presence token (null when presence is off). */
   presenceToken?: string | null;
@@ -29,9 +30,15 @@ export interface AdminRootProps {
   children: ReactNode;
 }
 
-function SignedIn({ basePath, apiPath, collections, user, presenceToken, children }: Omit<AdminRootProps, "theme" | "action" | "router" | "user" | "presignedUploads"> & { user: AdminUserInfo }) {
+const EMPTY_GLOBALS: ClientGlobal[] = [];
+
+function SignedIn({ basePath, apiPath, collections, globals, user, presenceToken, children }: Omit<AdminRootProps, "theme" | "action" | "router" | "user" | "presignedUploads"> & { user: AdminUserInfo }) {
   const services = useServices();
-  const value = useMemo(() => ({ basePath, apiPath, collections, user, services }), [basePath, apiPath, collections, user, services]);
+  const safeGlobals = globals ?? EMPTY_GLOBALS;
+  const value = useMemo(
+    () => ({ basePath, apiPath, collections, globals: safeGlobals, user, services }),
+    [basePath, apiPath, collections, safeGlobals, user, services],
+  );
   return (
     <AdminProvider value={value}>
       <PresenceHeartbeat token={presenceToken ?? null} />
@@ -41,7 +48,7 @@ function SignedIn({ basePath, apiPath, collections, user, presenceToken, childre
 }
 
 /** Root of the admin: scoped `.xenon-admin` element, theme, portals, toasts and runtime services. */
-export function AdminRoot({ theme, basePath, apiPath, action, router, collections, user, presenceToken, presignedUploads, children }: AdminRootProps) {
+export function AdminRoot({ theme, basePath, apiPath, action, router, collections, globals, user, presenceToken, presignedUploads, children }: AdminRootProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [portal, setPortal] = useState<HTMLElement | null>(null);
   const current = useAdminTheme(theme);
@@ -60,7 +67,7 @@ export function AdminRoot({ theme, basePath, apiPath, action, router, collection
   const runtime = (
     <AdminRuntimeProvider basePath={basePath} apiPath={apiPath} action={action} theme={theme} presignedUploads={presignedUploads}>
       {user ? (
-        <SignedIn basePath={basePath} apiPath={apiPath} collections={collections} user={user} presenceToken={presenceToken}>
+        <SignedIn basePath={basePath} apiPath={apiPath} collections={collections} globals={globals} user={user} presenceToken={presenceToken}>
           {children}
         </SignedIn>
       ) : (

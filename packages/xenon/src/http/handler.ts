@@ -1,5 +1,6 @@
 import { resolveSecret } from "../auth";
 import { isXenonError, XenonError } from "../core/errors";
+import { getGlobal, GLOBALS_COLLECTION } from "../core/global";
 import type { XenonConfig } from "../core/types";
 import { populatesRestrictedCollection } from "../server/populate";
 import { defaultPresenceStore, verifyPresenceToken } from "../server/presence";
@@ -212,8 +213,11 @@ async function handlePresence(request: Request, config: XenonConfig): Promise<Re
   }
   const loc = input.location as Record<string, unknown> | null | undefined;
   const collection = loc && typeof loc === "object" ? shortString(loc.collection, 64) : undefined;
-  const location = collection && config.collections.some((c) => c.slug === collection)
-    ? { collection, id: shortString((loc as Record<string, unknown>).id, 128), title: typeof (loc as Record<string, unknown>).title === "string" ? ((loc as Record<string, unknown>).title as string).slice(0, 160) : undefined }
+  const locId = loc && typeof loc === "object" ? shortString(loc.id, 128) : undefined;
+  const validCollection = collection && config.collections.some((c) => c.slug === collection);
+  const validGlobal = collection === GLOBALS_COLLECTION && locId && (config.globals ?? []).some((g) => g.slug === locId);
+  const location = validCollection || validGlobal
+    ? { collection: collection!, id: locId, title: typeof (loc as Record<string, unknown>).title === "string" ? ((loc as Record<string, unknown>).title as string).slice(0, 160) : undefined }
     : null;
   const intent = input.intent === "edit" || input.intent === "takeover" ? input.intent : "view";
   const snapshot = await store.beat({ tab, user, location, intent, version: shortString(input.version, 40) });
@@ -375,6 +379,60 @@ export async function handleApiSegments(
         return new Response(null, { status: 200, headers });
       }
       return new Response(bytes ?? stream, { headers });
+    }
+
+    if (slug === "globals") {
+      const globalSlug = id;
+      const global = globalSlug ? getGlobal(config, globalSlug) : undefined;
+      if (
+        !global ||
+        segments.length < 2 ||
+        segments.length > 3 ||
+        (action && (action !== "unpublish" || request.method !== "POST"))
+      ) {
+        throw new XenonError("NOT_FOUND", "Route not found.");
+      }
+      const isRead = request.method === "GET" || request.method === "HEAD";
+      const user = await xenon.getUser(request.headers);
+      if (!isRead && user && !/^Bearer\s+.+$/i.test(request.headers.get("authorization") ?? "")) {
+        requireTrustedOrigin(request, config);
+      }
+      const shared = { slug: globalSlug!, user, overrideAccess: false };
+      const params = new URL(request.url).searchParams;
+      switch (request.method) {
+        case "GET":
+        case "HEAD": {
+          if (action) throw new XenonError("NOT_FOUND", "Route not found.");
+          const lookup = (s: string) => xenon.getCollection(s);
+          const read = parseReadQuery(params, global, lookup);
+          const isPublic =
+            !read.draft &&
+            !global.access?.read &&
+            !populatesRestrictedCollection(global, read.populate, lookup);
+          if (!isPublic) noStoreOnError = true;
+          const doc = await xenon.getGlobal({ ...shared, ...read });
+          if (!doc) throw new XenonError("NOT_FOUND", "Global not found.");
+          return await jsonCachedResponse(request, doc, { isPublic, cacheControl: options?.cacheControl });
+        }
+        case "PATCH": {
+          if (action) throw new XenonError("NOT_FOUND", "Route not found.");
+          const data = await readJsonObject(request, "Global updates require application/json.");
+          return Response.json(
+            await xenon.updateGlobal({
+              ...shared,
+              data: data as never,
+              draft: parseDraft(params),
+              expectedUpdatedAt: parseIfMatch(request),
+            }),
+          );
+        }
+        case "POST": {
+          if (action === "unpublish") return Response.json(await xenon.unpublishGlobal(shared));
+          throw new XenonError("NOT_FOUND", "Route not found.");
+        }
+        default:
+          throw new XenonError("NOT_FOUND", "Route not found.");
+      }
     }
 
     const collection = slug ? xenon.getCollection(slug) : undefined;

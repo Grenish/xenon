@@ -152,6 +152,9 @@ export function useServices(): AdminServices {
       remove: (input) => run<{ id: string }>({ type: "doc.remove", ...input }, { refresh: true }),
       get: (input) => run<AdminDoc>({ type: "doc.get", ...input }),
       search: (input) => run<SearchResult>({ type: "doc.search", ...input }),
+      saveGlobal: (input) => run<AdminDoc>({ type: "global.save", ...input }, { refresh: true }),
+      getGlobal: (input) => run<AdminDoc | null>({ type: "global.get", ...input }),
+      unpublishGlobal: (input) => run<AdminDoc>({ type: "global.unpublish", ...input }, { refresh: true }),
       async upload({ collection, id, file, data, expectedUpdatedAt }) {
         const base = `${apiPath.replace(/\/+$/, "")}/${encodeURIComponent(collection)}`;
         const ifMatch = id && expectedUpdatedAt ? { "if-match": `"${expectedUpdatedAt}"` } : undefined;

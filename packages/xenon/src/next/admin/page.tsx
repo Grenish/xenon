@@ -8,13 +8,16 @@ import {
   CollectionListView,
   DashboardView,
   DocumentEditor,
+  GlobalEditor,
   SettingsView,
 } from "xenon-cms/client";
 import { NextAdminRouter } from "xenon-cms/next-client";
 import type { XenonConfig } from "../../core/types";
 import {
   canReadCollection,
+  canReadGlobal,
   filterReadableCollections,
+  filterReadableGlobals,
   loadAdminData,
   resolveAdminSort,
   unpublishedChangesOnPage,
@@ -23,7 +26,7 @@ import { adminRoutes, type AdminTheme } from "../../ui/shared/services";
 import { getXenon } from "../xenon";
 import { type AdminActionInput, type AdminActionResult, mergeSessionHeaders } from "./action";
 
-export { canReadCollection, filterReadableCollections, resolveAdminSort, unpublishedChangesOnPage };
+export { canReadCollection, canReadGlobal, filterReadableCollections, filterReadableGlobals, resolveAdminSort, unpublishedChangesOnPage };
 export type { AdminTheme };
 
 export interface AdminPageProps {
@@ -86,6 +89,7 @@ async function AdminPageContent({ config, action, params, searchParams }: AdminP
         apiPath={payload.shell.apiPath}
         action={action}
         collections={payload.shell.collections}
+        globals={payload.shell.globals}
         user={payload.shell.user}
         presenceToken={payload.shell.presenceToken}
         presignedUploads={payload.shell.presignedUploads}
@@ -118,6 +122,8 @@ async function AdminPageContent({ config, action, params, searchParams }: AdminP
       return renderShell(<DocumentEditor key="new" collection={payload.collection} doc={null} />);
     case "document-edit":
       return renderShell(<DocumentEditor key={payload.doc.id} collection={payload.collection} doc={payload.doc} />);
+    case "global-edit":
+      return renderShell(<GlobalEditor key={payload.global.slug} global={payload.global} doc={payload.doc} />);
     case "settings":
       return renderShell(<SettingsView tab={payload.tab} users={payload.users} sessions={payload.sessions} />);
   }

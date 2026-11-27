@@ -3,6 +3,7 @@
  * Strips functions (validate, access) and converts RegExp to { source, flags }.
  * Isomorphic: safe to import from both server and `"use client"` modules.
  */
+import type { AnyGlobal } from "../../core/global";
 import type { AnyBlock, AnyCollection, Field, FieldAdminOptions, FieldType, SelectOption } from "../../core/types";
 
 export interface ClientBlock {
@@ -60,6 +61,18 @@ export interface ClientCollection {
   admin: {
     useAsTitle: string | null;
     defaultColumns: string[];
+    group: string | null;
+    description: string | null;
+  };
+}
+
+export interface ClientGlobal {
+  slug: string;
+  label: string;
+  /** Declaration order. */
+  fields: ClientField[];
+  drafts: boolean;
+  admin: {
     group: string | null;
     description: string | null;
   };
@@ -192,6 +205,19 @@ export function toClientCollection(collection: AnyCollection): ClientCollection 
       defaultColumns: [...(collection.admin?.defaultColumns ?? [])],
       group: collection.admin?.group ?? null,
       description: collection.admin?.description ?? null,
+    },
+  };
+}
+
+export function toClientGlobal(global: AnyGlobal): ClientGlobal {
+  return {
+    slug: global.slug,
+    label: global.label ?? humanize(global.slug),
+    fields: toClientFields(global.fields),
+    drafts: global.drafts !== false,
+    admin: {
+      group: global.admin?.group ?? null,
+      description: global.admin?.description ?? null,
     },
   };
 }
