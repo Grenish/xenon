@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { SlugConflictError, UpdateConflictError } from "../../src/adapters/types";
+import { SlugConflictError, UniqueConflictError, UpdateConflictError } from "../../src/adapters/types";
 import type { CreateRecordInput, DatabaseAdapter, DocumentRecord, Where } from "../../src/adapters/types";
 
 /** Every database implementation runs these tests through the public adapter interface. */
@@ -254,6 +254,126 @@ export function runDatabaseAdapterConformance(name: string, factory: () => Promi
       const options = { user: { modelName: "xenon_users" }, session: { modelName: "xenon_sessions" }, account: { modelName: "xenon_accounts" }, verification: { modelName: "xenon_verifications" } };
       expect(await db.getAuthDatabase(options)).toBeDefined();
       expect(await db.getAuthDatabase(options)).toBeDefined();
+    });
+
+    test("nested dot-path where and sort traverse JSON objects consistently", async () => {
+      await create({ label: "a", seo: { noIndex: true, score: 10, title: "Alpha", nested: { code: "X1" } } });
+      await create({ label: "b", seo: { noIndex: false, score: 2, title: "Beta", tags: ["news", "hot"] } });
+      await create({ label: "c", seo: { noIndex: null, title: "gamma" } });
+      await create({ label: "d", seo: [{ noIndex: true }] });
+      await create({ label: "e" });
+
+      expect((await find({ "seo.noIndex": { equals: true } })).docs.map((r) => r.data.label)).toEqual(["a"]);
+      expect((await find({ "seo.noIndex": { equals: false } })).docs.map((r) => r.data.label)).toEqual(["b"]);
+      expect((await find({ "seo.noIndex": { equals: null } })).docs.map((r) => r.data.label).sort()).toEqual(["c", "d", "e"]);
+      expect((await find({ "seo.noIndex": { exists: true } })).docs.map((r) => r.data.label).sort()).toEqual(["a", "b"]);
+      expect((await find({ "seo.noIndex": { exists: false } })).docs.map((r) => r.data.label).sort()).toEqual(["c", "d", "e"]);
+      expect((await find({ "seo.score": { gt: 2 } })).docs.map((r) => r.data.label)).toEqual(["a"]);
+      expect((await find({ "seo.score": { gte: 2, lte: 10 } })).docs.map((r) => r.data.label).sort()).toEqual(["a", "b"]);
+      expect((await find({ "seo.title": { contains: "ALP" } })).docs.map((r) => r.data.label)).toEqual(["a"]);
+      expect((await find({ "seo.tags": { contains: "hot" } })).docs.map((r) => r.data.label)).toEqual(["b"]);
+      expect((await find({ "seo.nested.code": { equals: "X1" } })).docs.map((r) => r.data.label)).toEqual(["a"]);
+      expect((await find({ "seo.noIndex": { not_equals: true } })).docs.map((r) => r.data.label).sort()).toEqual(["b", "c", "d", "e"]);
+      expect((await find({ "seo..noIndex": { exists: false } })).totalDocs).toBe(5);
+
+      // Nested sort: numeric ascending/descending, missing last
+      const asc = await db.find({ collection: "posts", source: "published", sort: "seo.score" });
+      expect(asc.docs.slice(0, 2).map((r) => r.data.label)).toEqual(["b", "a"]);
+      const desc = await db.find({ collection: "posts", source: "published", sort: "-seo.score" });
+      expect(desc.docs.slice(0, 2).map((r) => r.data.label)).toEqual(["a", "b"]);
+
+      // Nested draft fallback
+      const liveWithDraft = await create(
+        { label: "f", seo: { noIndex: false } },
+        { draftData: { label: "f", seo: { noIndex: true } } },
+      );
+      expect((await find({ "seo.noIndex": { equals: true } }, "published")).docs.map((r) => r.id)).not.toContain(liveWithDraft.id);
+      expect((await find({ "seo.noIndex": { equals: true } }, "draft")).docs.map((r) => r.id)).toContain(liveWithDraft.id);
+    });
+
+    test("opt-in expression indexes and unique constraints enforce uniqueness across working and live data", async () => {
+      await db.init({
+        indexes: [
+          { collection: "posts", path: ["sku"], type: "text", unique: true },
+          { collection: "posts", path: ["code"], type: "number", unique: true },
+          { collection: "posts", path: ["seo", "canonicalId"], type: "text", unique: true },
+          { collection: "posts", path: ["priority"], type: "number", unique: false },
+        ],
+      });
+      // Re-init with the same indexes is idempotent.
+      await db.init({
+        indexes: [
+          { collection: "posts", path: ["sku"], type: "text", unique: true },
+          { collection: "posts", path: ["priority"], type: "number", unique: false },
+        ],
+      });
+
+      const a = await create({ sku: "SKU-1", code: 100, priority: 5, seo: { canonicalId: "canon-1" } }, { slug: "post-a" });
+      // Null / missing values do not collide.
+      await create({ sku: null, priority: 5 });
+      await create({ priority: 10 });
+
+      // Duplicate top-level text unique throws UniqueConflictError with exact path (even when slug is set!).
+      try {
+        await create({ sku: "SKU-1" }, { slug: "post-b" });
+        expect.unreachable("expected UniqueConflictError");
+      } catch (err) {
+        expect(err).toBeInstanceOf(UniqueConflictError);
+        expect((err as UniqueConflictError).path).toEqual(["sku"]);
+      }
+
+      // Duplicate top-level numeric unique (including -0 vs 0).
+      await create({ code: -0 });
+      await expect(create({ code: 0 })).rejects.toBeInstanceOf(UniqueConflictError);
+
+      // Duplicate nested group unique throws UniqueConflictError with nested path.
+      try {
+        await create({ seo: { canonicalId: "canon-1" } });
+        expect.unreachable("expected UniqueConflictError");
+      } catch (err) {
+        expect(err).toBeInstanceOf(UniqueConflictError);
+        expect((err as UniqueConflictError).path).toEqual(["seo", "canonicalId"]);
+      }
+
+      // Slug collision still throws SlugConflictError when unique field is distinct.
+      await expect(create({ sku: "SKU-DISTINCT" }, { slug: "post-a" })).rejects.toBeInstanceOf(SlugConflictError);
+
+      // Collection isolation: same unique value in another collection succeeds.
+      const other = await create({ sku: "SKU-1" }, { collection: "other" });
+      expect(other.data.sku).toBe("SKU-1");
+
+      // Self-update keeping same unique value succeeds; colliding update fails atomically.
+      expect((await db.update("posts", a.id, { data: { sku: "SKU-1", code: 100, priority: 9, seo: { canonicalId: "canon-1" } } }))?.data.priority).toBe(9);
+      const b = await create({ sku: "SKU-2", code: 200 });
+      await expect(db.update("posts", b.id, { data: { sku: "SKU-1", code: 200 } })).rejects.toBeInstanceOf(UniqueConflictError);
+      expect((await db.findById("posts", b.id))?.data.sku).toBe("SKU-2");
+
+      // Draft uniqueness: two drafts cannot claim the same value, and a draft cannot collide with a published doc.
+      await create({}, { status: "draft", draftData: { sku: "DRAFT-1" } });
+      await expect(create({}, { status: "draft", draftData: { sku: "DRAFT-1" } })).rejects.toBeInstanceOf(UniqueConflictError);
+      await expect(create({}, { status: "draft", draftData: { sku: "SKU-1" } })).rejects.toBeInstanceOf(UniqueConflictError);
+
+      // Published doc with a pending draft change protects BOTH its live value (against another publish)
+      // and its working draft value (against another draft/publish), releasing the old live value once published.
+      await db.update("posts", a.id, { draftData: { sku: "SKU-1-NEXT", code: 100, seo: { canonicalId: "canon-1" } } });
+      await expect(create({ sku: "SKU-1" })).rejects.toBeInstanceOf(UniqueConflictError);
+      await expect(create({}, { status: "draft", draftData: { sku: "SKU-1-NEXT" } })).rejects.toBeInstanceOf(UniqueConflictError);
+      // Publishing releases live SKU-1.
+      await db.update("posts", a.id, { data: { sku: "SKU-1-NEXT", code: 100, seo: { canonicalId: "canon-1" } }, draftData: null, status: "published" });
+      const reclaimed = await create({ sku: "SKU-1" });
+      expect(reclaimed.data.sku).toBe("SKU-1");
+
+      // Queries on indexed fields return accurate results (equality, range, in, sort).
+      expect((await find({ sku: { equals: "SKU-1" } })).docs.map((r) => r.id)).toEqual([reclaimed.id]);
+      expect((await find({ code: { in: [100, 200] } })).docs.map((r) => r.data.code).sort()).toEqual([100, 200]);
+      expect((await find({ priority: { gte: 5 } })).totalDocs).toBe(2);
+      expect((await find({ sku: { equals: "SKU-1-NEXT" } }, "draft")).docs.map((r) => r.id)).toEqual([a.id]);
+
+      // Concurrent duplicate creates admit only one winner.
+      const race = await Promise.allSettled([create({ sku: "RACE-1" }), create({ sku: "RACE-1" })]);
+      expect(race.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      const loser = race.find((r) => r.status === "rejected");
+      expect(loser?.status === "rejected" && loser.reason).toBeInstanceOf(UniqueConflictError);
     });
   });
 }

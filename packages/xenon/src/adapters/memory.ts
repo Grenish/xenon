@@ -1,16 +1,43 @@
 import { memoryAdapter as betterAuthMemoryAdapter } from "better-auth/adapters/memory";
 import { getSchema } from "better-auth/db";
 import { compareStrings, compareValues, matchesOperators } from "./match";
-import { SlugConflictError, UpdateConflictError } from "./types";
-import type { DatabaseAdapter, DocumentRecord, Where } from "./types";
+import { SlugConflictError, UniqueConflictError, UpdateConflictError } from "./types";
+import type { DatabaseAdapter, DatabaseInitOptions, DocumentRecord, FieldIndexSpec, Where } from "./types";
 
 const systemKeys = new Set(["id", "slug", "status", "createdAt", "updatedAt"]);
+
+function getPathValue(data: Record<string, unknown>, path: readonly string[]): unknown {
+  let current: unknown = data;
+  for (const segment of path) {
+    if (
+      typeof current !== "object" ||
+      current === null ||
+      Array.isArray(current) ||
+      !Object.hasOwn(current, segment)
+    ) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
 
 function valueFor(record: DocumentRecord, key: string, source: "published" | "draft"): unknown {
   if (key === "createdAt" || key === "updatedAt") return record[key].toISOString();
   if (systemKeys.has(key)) return record[key as keyof DocumentRecord];
   const data = source === "draft" ? record.draftData ?? record.data : record.data;
-  return Object.hasOwn(data, key) ? data[key] : undefined;
+  if (!key.includes(".")) return Object.hasOwn(data, key) ? data[key] : undefined;
+  const parts = key.split(".");
+  if (parts.some((p) => !p)) return undefined;
+  return getPathValue(data, parts);
+}
+
+function uniqueFieldValue(data: Record<string, unknown>, spec: FieldIndexSpec): string | number | boolean | null {
+  const raw = getPathValue(data, spec.path);
+  if (spec.type === "text") return typeof raw === "string" ? raw : null;
+  if (spec.type === "number") return typeof raw === "number" && Number.isFinite(raw) ? (Object.is(raw, -0) ? 0 : raw) : null;
+  if (spec.type === "boolean") return typeof raw === "boolean" ? raw : null;
+  return null;
 }
 
 function matches(record: DocumentRecord, where: Where, source: "published" | "draft"): boolean {
@@ -27,16 +54,44 @@ function matches(record: DocumentRecord, where: Where, source: "published" | "dr
 export function memoryAdapter(): DatabaseAdapter {
   const records = new Map<string, DocumentRecord>();
   const authRows: Record<string, Record<string, unknown>[]> = Object.create(null);
+  const uniqueSpecs = new Map<string, FieldIndexSpec>();
 
-  function assertUnique(collection: string, slug: string | null, id?: string) {
-    if (slug !== null && [...records.values()].some((row) => row.collection === collection && row.slug === slug && row.id !== id)) {
-      throw new SlugConflictError(collection, slug);
+  function assertUnique(
+    candidate: Pick<DocumentRecord, "collection" | "slug" | "status" | "data" | "draftData">,
+    id?: string,
+  ) {
+    if (candidate.slug !== null && [...records.values()].some((row) => row.collection === candidate.collection && row.slug === candidate.slug && row.id !== id)) {
+      throw new SlugConflictError(candidate.collection, candidate.slug);
+    }
+    const candidateWorking = candidate.draftData ?? candidate.data;
+    for (const spec of uniqueSpecs.values()) {
+      if (spec.collection !== candidate.collection) continue;
+      const workingVal = uniqueFieldValue(candidateWorking, spec);
+      const liveVal = candidate.status === "published" ? uniqueFieldValue(candidate.data, spec) : null;
+      if (workingVal === null && liveVal === null) continue;
+      for (const row of records.values()) {
+        if (row.collection !== candidate.collection || row.id === id) continue;
+        if (workingVal !== null) {
+          const otherWorking = uniqueFieldValue(row.draftData ?? row.data, spec);
+          if (otherWorking === workingVal) throw new UniqueConflictError(spec.collection, spec.path);
+        }
+        if (liveVal !== null && row.status === "published") {
+          const otherLive = uniqueFieldValue(row.data, spec);
+          if (otherLive === liveVal) throw new UniqueConflictError(spec.collection, spec.path);
+        }
+      }
     }
   }
 
   return {
     name: "memory",
-    async init() {},
+    async init(options?: DatabaseInitOptions) {
+      for (const spec of options?.indexes ?? []) {
+        if (!spec.unique) continue;
+        const key = `${spec.collection}\0${spec.path.join(".")}`;
+        uniqueSpecs.set(key, { ...spec, path: [...spec.path] });
+      }
+    },
     async find(args) {
       const { collection, source, where = {}, sort = "-createdAt", limit = 10, page = 1 } = args;
       if (!Number.isSafeInteger(limit) || limit < 0 || !Number.isSafeInteger(page) || page < 1) {
@@ -64,7 +119,7 @@ export function memoryAdapter(): DatabaseAdapter {
       return record?.collection === collection ? structuredClone(record) : null;
     },
     async create(input) {
-      assertUnique(input.collection, input.slug);
+      assertUnique(input);
       const timestamp = new Date();
       const record: DocumentRecord = {
         ...structuredClone(input), id: crypto.randomUUID(), createdAt: timestamp, updatedAt: new Date(timestamp),
@@ -83,7 +138,7 @@ export function memoryAdapter(): DatabaseAdapter {
       if (input.status !== undefined) record.status = input.status;
       if (input.data !== undefined) record.data = structuredClone(input.data);
       if (input.draftData !== undefined) record.draftData = structuredClone(input.draftData);
-      assertUnique(collection, record.slug, id);
+      assertUnique(record, id);
       // Strictly increasing, so updatedAt works as the record's version (see DatabaseAdapter.update).
       record.updatedAt = new Date(Math.max(Date.now(), previous.updatedAt.getTime() + 1));
       records.set(id, record);

@@ -37,4 +37,4 @@ export { SYSTEM_KEYS, UPLOAD_KEYS } from "./core/types";
 export { evaluateCondition } from "./core/condition";
 export type * from "./core/types";
 export type * from "./adapters/types";
-export { SlugConflictError, UpdateConflictError } from "./adapters/types";
+export { SlugConflictError, UniqueConflictError, UpdateConflictError } from "./adapters/types";

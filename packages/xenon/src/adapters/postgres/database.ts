@@ -6,18 +6,22 @@ import {
   type CollectionSummary,
   type CreateRecordInput,
   type DatabaseAdapter,
+  type DatabaseInitOptions,
   type DocumentRecord,
+  type FieldIndexSpec,
+  type FieldIndexType,
   type FindArgs,
   type PaginatedResult,
   SlugConflictError,
   type SummarizeArgs,
   type UpdateRecordInput,
   type UpdateRecordOptions,
+  UniqueConflictError,
   UpdateConflictError,
 } from "../types";
 import { authDDL, authDrizzleSchema } from "./auth-schema";
 import { DOCUMENTS_DDL, xenonDocuments as t } from "./schema";
-import { compileOrderBy, compileWhere } from "./where";
+import { compileOrderBy, compileWhere, pgStringLiteral } from "./where";
 
 interface Connection {
   db: PgDatabase<any, any, any>;
@@ -76,12 +80,107 @@ async function initializeSchema(db: Connection["db"], statements: readonly strin
   await db.execute(sql.raw(`DO $${tag}$${body}$${tag}$`));
 }
 
-/** Walks `cause` chains (drizzle wraps driver errors) looking for a Postgres unique violation. */
-function isUniqueViolation(err: unknown): boolean {
-  for (let e = err as { code?: unknown; cause?: unknown } | undefined, i = 0; e && i < 5; e = e.cause as typeof e, i++) {
-    if (e.code === "23505") return true;
+/** Dual-32-bit FNV-1a hash (16 hex chars) for deterministic <=63-byte Postgres index names. */
+function shortHash(input: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x050c5d1f;
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193);
+    h2 = Math.imul(h2 ^ (c + i), 0x01000193);
   }
-  return false;
+  return (h1 >>> 0).toString(16).padStart(8, "0") + (h2 >>> 0).toString(16).padStart(8, "0");
+}
+
+function sanitizeIdentPart(input: string, maxLen: number): string {
+  return input.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, maxLen) || "f";
+}
+
+function fieldIndexName(spec: FieldIndexSpec, scope: "p" | "w"): string {
+  const prefix = spec.unique ? `xenon_uidx_${scope}` : `xenon_idx_${scope}`;
+  const coll = sanitizeIdentPart(spec.collection, 14);
+  const path = sanitizeIdentPart(spec.path.join("_"), 14);
+  const hash = shortHash(`${scope}:${spec.unique ? "u" : "i"}:${spec.type}:${spec.collection}:${spec.path.join(".")}`);
+  return `${prefix}_${coll}_${path}_${hash}`.slice(0, 63);
+}
+
+function rawJsonPathExpr(sourceSql: string, path: readonly string[]): string {
+  let expr = sourceSql;
+  for (const seg of path) expr = `(${expr} -> ${pgStringLiteral(seg)})`;
+  return expr;
+}
+
+function rawTypedExpr(pathSql: string, type: FieldIndexType): { expr: string; column: string } {
+  if (type === "number") {
+    const expr = `(case when jsonb_typeof(${pathSql}) = 'number' then (${pathSql})::numeric end)`;
+    return { expr, column: expr };
+  }
+  if (type === "boolean") {
+    const expr = `(case when jsonb_typeof(${pathSql}) = 'boolean' then (${pathSql} #>> '{}') end)`;
+    return { expr, column: `${expr} COLLATE "C"` };
+  }
+  const expr = `(case when jsonb_typeof(${pathSql}) = 'string' then (${pathSql} #>> '{}') end)`;
+  return { expr, column: `${expr} COLLATE "C"` };
+}
+
+interface GeneratedIndex {
+  name: string;
+  ddl: string;
+  spec: FieldIndexSpec;
+}
+
+function buildFieldIndexDdl(spec: FieldIndexSpec): GeneratedIndex[] {
+  const collLit = pgStringLiteral(spec.collection);
+  const out: GeneratedIndex[] = [];
+  // Published expression index: accelerates published equality/range/sort queries, and when `unique`,
+  // enforces uniqueness across live published rows (`status = 'published'`).
+  const pubName = fieldIndexName(spec, "p");
+  const pubTyped = rawTypedExpr(rawJsonPathExpr(`"data"`, spec.path), spec.type);
+  const pubWhere = spec.unique
+    ? `"collection" = ${collLit} AND "status" = 'published' AND ${pubTyped.expr} IS NOT NULL`
+    : `"collection" = ${collLit} AND "status" = 'published'`;
+  out.push({
+    name: pubName,
+    ddl: `CREATE ${spec.unique ? "UNIQUE " : ""}INDEX IF NOT EXISTS "${pubName}" ON "xenon_documents" (${pubTyped.column}) WHERE ${pubWhere}`,
+    spec,
+  });
+
+  if (spec.unique) {
+    // Working-copy partial unique index: enforces uniqueness across all working copies (drafts +
+    // published rows), preventing two drafts or a draft and published doc from colliding.
+    const workName = fieldIndexName(spec, "w");
+    const workTyped = rawTypedExpr(rawJsonPathExpr(`coalesce("draft_data", "data")`, spec.path), spec.type);
+    out.push({
+      name: workName,
+      ddl: `CREATE UNIQUE INDEX IF NOT EXISTS "${workName}" ON "xenon_documents" (${workTyped.column}) WHERE "collection" = ${collLit} AND ${workTyped.expr} IS NOT NULL`,
+      spec,
+    });
+  }
+  return out;
+}
+
+/** Walks `cause` chains (drizzle wraps driver errors) looking for a Postgres unique violation (23505). */
+function extractUniqueViolation(err: unknown): { constraint?: string; detail?: string; message?: string } | null {
+  for (
+    let e = err as { code?: unknown; constraint?: unknown; constraint_name?: unknown; detail?: unknown; message?: unknown; cause?: unknown } | undefined,
+      i = 0;
+    e && i < 6;
+    e = e.cause as typeof e, i++
+  ) {
+    if (e.code === "23505") {
+      const constraint = typeof e.constraint === "string"
+        ? e.constraint
+        : typeof e.constraint_name === "string"
+          ? e.constraint_name
+          : undefined;
+      return {
+        constraint,
+        detail: typeof e.detail === "string" ? e.detail : undefined,
+        message: typeof e.message === "string" ? e.message : undefined,
+      };
+    }
+  }
+  return null;
 }
 
 type Row = typeof t.$inferSelect;
@@ -108,7 +207,11 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
   readonly db: PgDatabase<any, any, any>;
 } {
   let conn: Connection | null = null;
-  let initPromise: Promise<void> | null = null;
+  let baseInitPromise: Promise<void> | null = null;
+  const appliedIndexNames = new Set<string>();
+  const uniqueIndexByName = new Map<string, FieldIndexSpec>();
+  const publishedIndexesByCollection = new Map<string, Map<string, FieldIndexType>>();
+  const workingIndexesByCollection = new Map<string, Map<string, FieldIndexType>>();
 
   const db = (): PgDatabase<any, any, any> => {
     if (!conn) throw new Error("[xenon] database adapter used before init()");
@@ -119,7 +222,23 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
     try {
       return await fn();
     } catch (err) {
-      if (slug && isUniqueViolation(err)) throw new SlugConflictError(collection, slug);
+      const violation = extractUniqueViolation(err);
+      if (violation) {
+        if (violation.constraint) {
+          const uniqueSpec = uniqueIndexByName.get(violation.constraint);
+          if (uniqueSpec) throw new UniqueConflictError(uniqueSpec.collection, uniqueSpec.path);
+          if (violation.constraint === "xenon_documents_collection_slug_idx") {
+            throw new SlugConflictError(collection, slug ?? "");
+          }
+        }
+        // Fallback if a driver omits `constraint` and embeds the index name in the error message.
+        if (violation.message) {
+          for (const [name, spec] of uniqueIndexByName) {
+            if (violation.message.includes(name)) throw new UniqueConflictError(spec.collection, spec.path);
+          }
+        }
+        if (slug) throw new SlugConflictError(collection, slug);
+      }
       throw err;
     }
   }
@@ -130,22 +249,64 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
       return db();
     },
 
-    init() {
-      initPromise ??= (async () => {
+    async init(options?: DatabaseInitOptions) {
+      baseInitPromise ??= (async () => {
         conn ??= await connect();
         await initializeSchema(conn.db, DOCUMENTS_DDL);
       })().catch((err) => {
-        initPromise = null;
+        baseInitPromise = null;
         throw err;
       });
-      return initPromise;
+      await baseInitPromise;
+
+      const specs = options?.indexes;
+      if (!specs?.length) return;
+      const pending: GeneratedIndex[] = [];
+      for (const spec of specs) {
+        if (!spec.path.length) continue;
+        const normalized: FieldIndexSpec = { ...spec, path: [...spec.path] };
+        let pubByPath = publishedIndexesByCollection.get(normalized.collection);
+        if (!pubByPath) {
+          pubByPath = new Map();
+          publishedIndexesByCollection.set(normalized.collection, pubByPath);
+        }
+        pubByPath.set(normalized.path.join("."), normalized.type);
+        if (normalized.unique) {
+          let workByPath = workingIndexesByCollection.get(normalized.collection);
+          if (!workByPath) {
+            workByPath = new Map();
+            workingIndexesByCollection.set(normalized.collection, workByPath);
+          }
+          workByPath.set(normalized.path.join("."), normalized.type);
+        }
+        for (const gen of buildFieldIndexDdl(normalized)) {
+          if (normalized.unique) uniqueIndexByName.set(gen.name, normalized);
+          if (!appliedIndexNames.has(gen.name)) pending.push(gen);
+        }
+      }
+      if (pending.length) {
+        await initializeSchema(db(), pending.map((g) => g.ddl));
+        for (const gen of pending) appliedIndexNames.add(gen.name);
+      }
     },
 
     async find(args: FindArgs): Promise<PaginatedResult<DocumentRecord>> {
       const limit = Math.max(0, Math.floor(args.limit ?? 10));
       const page = Math.max(1, Math.floor(args.page ?? 1));
-      const filters = [eq(t.collection, args.collection), compileWhere(args.where, args.source)];
-      if (args.source === "published") filters.push(eq(t.status, "published"));
+      const indexedFields =
+        args.source === "published"
+          ? publishedIndexesByCollection.get(args.collection)
+          : workingIndexesByCollection.get(args.collection);
+      // Schema-registered collections inline the literal collection name so PostgreSQL's planner
+      // proves partial-index predicates (`WHERE "collection" = '...'`) even on generic prepared plans.
+      const collectionFilter = indexedFields
+        ? sql`${t.collection} = ${sql.raw(pgStringLiteral(args.collection))}`
+        : eq(t.collection, args.collection);
+      const filters = [
+        collectionFilter,
+        compileWhere(args.where, args.source, indexedFields),
+      ];
+      if (args.source === "published") filters.push(sql`${t.status} = 'published'`);
       const condition = and(...filters);
 
       const [{ total } = { total: 0 }] = await db().select({ total: count() }).from(t).where(condition);
@@ -289,7 +450,8 @@ export function createDatabaseAdapter(connect: () => Promise<Connection>): Datab
     async close() {
       await conn?.close();
       conn = null;
-      initPromise = null;
+      baseInitPromise = null;
+      appliedIndexNames.clear();
     },
   };
 }

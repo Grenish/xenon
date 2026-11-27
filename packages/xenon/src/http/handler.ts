@@ -1,6 +1,7 @@
 import { resolveSecret } from "../auth";
 import { isXenonError, XenonError } from "../core/errors";
 import type { XenonConfig } from "../core/types";
+import { populatesRestrictedCollection } from "../server/populate";
 import { defaultPresenceStore, verifyPresenceToken } from "../server/presence";
 import type { UploadFile, XenonInstance } from "../server/types";
 import { keySegments } from "../storage/keys";
@@ -17,7 +18,7 @@ import {
   matchesIfNoneMatch,
   PRIVATE_NO_STORE,
 } from "./cache";
-import { parseDraft, parseQuery } from "./query";
+import { parseDraft, parseQuery, parseReadQuery } from "./query";
 
 export interface CreateHandlerOptions<Cfg extends XenonConfig = XenonConfig> {
   /** Reuse a specific Local API instance (e.g. `getXenon(config)` in Next.js or a test instance). */
@@ -398,14 +399,24 @@ export async function handleApiSegments(
     switch (request.method) {
       case "GET":
       case "HEAD": {
-        const draft = parseDraft(params);
-        const isPublic = !draft && !collection.access?.read;
-        if (!isPublic) noStoreOnError = true;
+        const lookup = (s: string) => xenon.getCollection(s);
         if (!id) {
-          const result = await xenon.find({ ...shared, ...parseQuery(params, collection) });
+          const parsed = parseQuery(params, collection, lookup);
+          const isPublic =
+            !parsed.draft &&
+            !collection.access?.read &&
+            !populatesRestrictedCollection(collection, parsed.populate, lookup);
+          if (!isPublic) noStoreOnError = true;
+          const result = await xenon.find({ ...shared, ...parsed });
           return await jsonCachedResponse(request, result, { isPublic, cacheControl: options?.cacheControl });
         }
-        const doc = await xenon.findById({ ...shared, id, draft });
+        const read = parseReadQuery(params, collection, lookup);
+        const isPublic =
+          !read.draft &&
+          !collection.access?.read &&
+          !populatesRestrictedCollection(collection, read.populate, lookup);
+        if (!isPublic) noStoreOnError = true;
+        const doc = await xenon.findById({ ...shared, id, ...read });
         if (!doc) throw new XenonError("NOT_FOUND", "Document not found.");
         return await jsonCachedResponse(request, doc, { isPublic, cacheControl: options?.cacheControl });
       }
