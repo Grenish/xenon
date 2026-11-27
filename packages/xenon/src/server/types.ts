@@ -1,7 +1,7 @@
 /**
  * Local API surface (CONTRACTS §3). The REST handler and the admin UI build on this interface only.
  */
-import type { PaginatedResult, StoredFile, Where } from "../adapters/types";
+import type { PaginatedResult, StoredFile, VersionAuthor, VersionKind, Where } from "../adapters/types";
 import type {
   AnyGlobal,
   GlobalBySlug,
@@ -205,11 +205,90 @@ export interface UpdateOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
    * been saved since, the update is refused with a `CONFLICT` error instead of overwriting.
    */
   expectedUpdatedAt?: string | Date;
+  /**
+   * A background draft save (admin autosave): with `draft: true`, the write does not create a
+   * version (collections with `versions`). Ignored on publishes.
+   */
+  autosave?: boolean;
 }
 
 export interface ByIdOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
   collection: S;
   id: string;
+}
+
+/* ------------------------------- Versions (#15) ------------------------------- */
+
+export type { VersionAuthor, VersionKind };
+
+/** One saved version of a document. */
+export interface DocumentVersion<Doc = Record<string, unknown>> {
+  /** Version id. */
+  id: string;
+  documentId: string;
+  /** `publish`: what went live; `draft`: a manual draft save; `restore`: a restored version. */
+  kind: VersionKind;
+  /** When the version was saved (ISO). */
+  createdAt: string;
+  author: VersionAuthor | null;
+  /** The document as it was (field values read with current defaults; `updatedAt` = `createdAt`). */
+  doc: Doc;
+}
+
+export interface FindVersionsOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
+  collection: S;
+  /** Document id. */
+  id: string;
+  /** Default 10, max 100. */
+  limit?: number;
+  page?: number;
+}
+
+export interface RestoreVersionOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
+  collection: S;
+  /** Version id. */
+  id: string;
+  /**
+   * `true` (default when the collection uses drafts): the version becomes the working copy and
+   * live content is untouched. `false` publishes it.
+   */
+  draft?: boolean;
+  /** Optimistic concurrency against the document (see `UpdateOptions.expectedUpdatedAt`). */
+  expectedUpdatedAt?: string | Date;
+}
+
+/* ---------------------------- Scheduling (#16) ---------------------------- */
+
+/** A document's pending schedule (ISO instants, `null` when not scheduled). */
+export interface DocumentSchedule {
+  /** When the working copy is published. */
+  publishAt: string | null;
+  /** When the document is unpublished. Published reads hide it from this instant on. */
+  unpublishAt: string | null;
+}
+
+export interface ScheduleOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
+  collection: S;
+  id: string;
+  /** Omitted: unchanged. `null`: cleared. Needs unpublished changes (a draft, or a published document's pending draft). */
+  publishAt?: string | Date | null;
+  /** Omitted: unchanged. `null`: cleared. Must be after `publishAt` when both are set. */
+  unpublishAt?: string | Date | null;
+}
+
+export interface RunScheduledOptions {
+  /** Process work due at or before this instant. Default: now. */
+  now?: Date;
+  /** Maximum documents per run (default 100). */
+  limit?: number;
+  context?: HookContext;
+}
+
+export interface ScheduledRunResult {
+  published: { collection: string; id: string }[];
+  unpublished: { collection: string; id: string }[];
+  /** Publishes that failed (e.g. the draft does not pass validation). Their `publishAt` is cleared. */
+  failed: { collection: string; id: string; action: "publish" | "unpublish"; message: string }[];
 }
 
 export interface PresignUploadOptions<Cfg, S extends Slug<Cfg>> extends CallContext {
@@ -303,6 +382,25 @@ export interface XenonInstance<Cfg extends XenonConfig = XenonConfig> {
   unpublish<S extends Slug<Cfg>>(options: ByIdOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
   /** Returns the deleted document. Throws `XenonError("NOT_FOUND")`. */
   delete<S extends Slug<Cfg>>(options: ByIdOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
+
+  /** A document's versions, newest first (collections with `versions`). Needs draft read access. */
+  findVersions<S extends Slug<Cfg>>(options: FindVersionsOptions<Cfg, S>): Promise<PaginatedResult<DocumentVersion<DocOf<Cfg, S>>>>;
+  /** One version by its id, or `null`. */
+  findVersionById<S extends Slug<Cfg>>(options: ByIdOptions<Cfg, S>): Promise<DocumentVersion<DocOf<Cfg, S>> | null>;
+  /** Restore a version (by version id) onto its document; runs as an `update` (hooks, access, onChange). */
+  restoreVersion<S extends Slug<Cfg>>(options: RestoreVersionOptions<Cfg, S>): Promise<DocOf<Cfg, S>>;
+
+  /** A document's pending schedule (draft-enabled collections). */
+  getSchedule<S extends Slug<Cfg>>(options: ByIdOptions<Cfg, S>): Promise<DocumentSchedule>;
+  /** Schedule a publish and/or unpublish. Needs `update` access and an adapter with `findDue`. */
+  schedule<S extends Slug<Cfg>>(options: ScheduleOptions<Cfg, S>): Promise<DocumentSchedule>;
+  /**
+   * Runs due scheduled publishes and unpublishes through `update` / `unpublish` (hooks, versions,
+   * `onChange`). Trusted (no access checks). Call it from a cron job, or use `{api}/_cron/publish`.
+   */
+  runScheduled(options?: RunScheduledOptions): Promise<ScheduledRunResult>;
+  /** `true` when the database adapter supports scheduled publishing (`findDue`). */
+  readonly supportsScheduling: boolean;
 
   /** Collection definition by slug, or `undefined`. */
   getCollection(slug: string): AnyCollection | undefined;

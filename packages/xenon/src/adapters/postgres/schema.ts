@@ -16,6 +16,8 @@ export const xenonDocuments = pgTable(
     draftData: jsonb("draft_data").$type<Record<string, unknown> | null>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    publishAt: timestamp("publish_at", { withTimezone: true, mode: "date" }),
+    unpublishAt: timestamp("unpublish_at", { withTimezone: true, mode: "date" }),
   },
   (t) => [
     uniqueIndex("xenon_documents_collection_slug_idx")
@@ -23,6 +25,22 @@ export const xenonDocuments = pgTable(
       .where(sql`${t.slug} is not null`),
     index("xenon_documents_collection_status_created_idx").on(t.collection, t.status, t.createdAt),
   ],
+);
+
+/** Snapshots of document data (#15). No foreign key: the Local API deletes a document's versions with it. */
+export const xenonVersions = pgTable(
+  "xenon_versions",
+  {
+    id: text("id").primaryKey(),
+    collection: text("collection").notNull(),
+    documentId: text("document_id").notNull(),
+    kind: text("kind", { enum: ["publish", "draft", "restore"] }).notNull(),
+    slug: text("slug"),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+    author: jsonb("author").$type<{ id: string; name: string | null; email: string | null } | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [index("xenon_versions_document_idx").on(t.collection, t.documentId, t.createdAt)],
 );
 
 /** Idempotent DDL matching `xenonDocuments` (no drizzle-kit needed at runtime). */
@@ -43,4 +61,24 @@ export const DOCUMENTS_DDL = [
     ON "xenon_documents" ("collection", "status", "created_at")`,
   `CREATE INDEX IF NOT EXISTS "xenon_documents_data_gin_idx"
     ON "xenon_documents" USING gin ("data" jsonb_path_ops)`,
+  // Scheduled publishing (#16): additive columns, so existing databases upgrade in place.
+  `ALTER TABLE "xenon_documents" ADD COLUMN IF NOT EXISTS "publish_at" timestamptz`,
+  `ALTER TABLE "xenon_documents" ADD COLUMN IF NOT EXISTS "unpublish_at" timestamptz`,
+  `CREATE INDEX IF NOT EXISTS "xenon_documents_publish_at_idx"
+    ON "xenon_documents" ("publish_at") WHERE "publish_at" IS NOT NULL`,
+  `CREATE INDEX IF NOT EXISTS "xenon_documents_unpublish_at_idx"
+    ON "xenon_documents" ("unpublish_at") WHERE "unpublish_at" IS NOT NULL`,
+  // Version history (#15).
+  `CREATE TABLE IF NOT EXISTS "xenon_versions" (
+    "id" text PRIMARY KEY,
+    "collection" text NOT NULL,
+    "document_id" text NOT NULL,
+    "kind" text NOT NULL CHECK ("kind" IN ('publish', 'draft', 'restore')),
+    "slug" text,
+    "data" jsonb NOT NULL,
+    "author" jsonb,
+    "created_at" timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS "xenon_versions_document_idx"
+    ON "xenon_versions" ("collection", "document_id", "created_at")`,
 ];

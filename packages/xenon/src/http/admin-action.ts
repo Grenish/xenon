@@ -9,7 +9,7 @@ import type { XenonInstance } from "../server/types";
 import { createXenon } from "../server/xenon";
 import {
   documentSummaryTitle,
-  type AccountSession, type ActionResult, type AdminDoc, type AdminUserInfo,
+  type AccountSession, type ActionResult, type AdminDoc, type AdminUserInfo, type AdminVersionPage,
   type DocSummary, type SearchInput, type SearchResult,
 } from "../ui/shared/services";
 
@@ -23,8 +23,11 @@ export type AdminActionInput =
   | { type: "auth.logout" }
   | { type: "auth.setup"; name: string; email: string; password: string }
   | { type: "doc.get"; collection: string; id: string }
-  | { type: "doc.save"; collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string; slug?: string | null }
+  | { type: "doc.save"; collection: string; id?: string; data: Record<string, unknown>; draft: boolean; expectedUpdatedAt?: string; slug?: string | null; autosave?: boolean }
   | { type: "doc.unpublish"; collection: string; id: string }
+  | { type: "doc.versions"; collection: string; id: string; page?: number }
+  | { type: "doc.restoreVersion"; collection: string; id: string; versionId: string; expectedUpdatedAt?: string }
+  | { type: "doc.schedule"; collection: string; id: string; publishAt?: string | null; unpublishAt?: string | null }
   | { type: "doc.remove"; collection: string; id: string }
   | ({ type: "doc.search" } & SearchInput)
   | { type: "global.get"; slug: string }
@@ -150,7 +153,14 @@ export function toAdminDoc(doc: Record<string, unknown>, record: DocumentRecord 
     updatedAt: updatedAt as string,
     hasUnpublishedChanges: record ? record.status === "published" && record.draftData !== null : false,
     data,
+    publishAt: record?.publishAt ? record.publishAt.toISOString() : null,
+    unpublishAt: record?.unpublishAt ? record.unpublishAt.toISOString() : null,
   };
+}
+
+/** Only an ISO string (set) or `null` (clear) reaches the Local API; anything else leaves it unchanged. */
+function scheduleInput(value: unknown): string | null | undefined {
+  return typeof value === "string" || value === null ? value : undefined;
 }
 
 export function toSummary(collection: AnyCollection, doc: Record<string, unknown>): DocSummary {
@@ -414,6 +424,7 @@ export async function dispatchAdminActionWithHeaders(
           ? await xenon.update({
               ...ctx, collection: input.collection, id: input.id, data: input.data as never, draft: input.draft,
               expectedUpdatedAt: typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : undefined,
+              autosave: input.autosave === true,
               ...slugInput(input.slug),
             })
           : await xenon.create({ ...ctx, collection: input.collection, data: input.data as never, draft: input.draft, ...slugInput(input.slug) });
@@ -428,6 +439,42 @@ export async function dispatchAdminActionWithHeaders(
 
       case "doc.unpublish": {
         await xenon.unpublish({ ...ctx, collection: input.collection, id: input.id });
+        return { result: ok(await loadAdminDoc(xenon, config, input.collection, input.id, user)), headers: responseHeaders };
+      }
+
+      case "doc.versions": {
+        collectionOf(input.collection);
+        const page = typeof input.page === "number" && Number.isInteger(input.page) && input.page > 0 ? input.page : 1;
+        const result = await xenon.findVersions({ ...ctx, collection: input.collection, id: input.id, page, limit: 20 });
+        const data: AdminVersionPage = {
+          docs: result.docs.map((v) => {
+            const { id: _id, slug: _slug, status: _status, createdAt: _createdAt, updatedAt: _updatedAt, ...fields } = v.doc as Record<string, unknown>;
+            return { id: v.id, kind: v.kind, createdAt: v.createdAt, author: v.author, data: fields };
+          }),
+          totalDocs: result.totalDocs,
+          page: result.page,
+          hasNextPage: result.hasNextPage,
+        };
+        return { result: ok(data), headers: responseHeaders };
+      }
+
+      case "doc.restoreVersion": {
+        collectionOf(input.collection);
+        const version = await xenon.findVersionById({ ...ctx, collection: input.collection, id: input.versionId });
+        if (!version || version.documentId !== input.id) throw new XenonError("NOT_FOUND", "This version no longer exists.");
+        await xenon.restoreVersion({
+          ...ctx, collection: input.collection, id: input.versionId,
+          expectedUpdatedAt: typeof input.expectedUpdatedAt === "string" ? input.expectedUpdatedAt : undefined,
+        });
+        return { result: ok(await loadAdminDoc(xenon, config, input.collection, input.id, user)), headers: responseHeaders };
+      }
+
+      case "doc.schedule": {
+        collectionOf(input.collection);
+        await xenon.schedule({
+          ...ctx, collection: input.collection, id: input.id,
+          publishAt: scheduleInput(input.publishAt), unpublishAt: scheduleInput(input.unpublishAt),
+        });
         return { result: ok(await loadAdminDoc(xenon, config, input.collection, input.id, user)), headers: responseHeaders };
       }
 

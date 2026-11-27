@@ -36,7 +36,8 @@ const mediaCollection = defineCollection({
 const posts = defineCollection({
   slug: "posts",
   slugFrom: "title",
-  admin: { useAsTitle: "title" },
+  versions: true,
+  admin: { useAsTitle: "title", autosave: true },
   fields: {
     title: text({ required: true, maxLength: 200 }),
     excerpt: textarea(),

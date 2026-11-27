@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SlugConflictError, UniqueConflictError, UpdateConflictError } from "../../src/adapters/types";
-import type { CreateRecordInput, DatabaseAdapter, DocumentRecord, Where } from "../../src/adapters/types";
+import type { CreateRecordInput, DatabaseAdapter, DocumentRecord, VersionRecord, Where } from "../../src/adapters/types";
 
 /** Every database implementation runs these tests through the public adapter interface. */
 export function runDatabaseAdapterConformance(name: string, factory: () => Promise<DatabaseAdapter>) {
@@ -374,6 +374,99 @@ export function runDatabaseAdapterConformance(name: string, factory: () => Promi
       expect(race.filter((r) => r.status === "fulfilled")).toHaveLength(1);
       const loser = race.find((r) => r.status === "rejected");
       expect(loser?.status === "rejected" && loser.reason).toBeInstanceOf(UniqueConflictError);
+    });
+
+    /* ------------------------------ schedules (#16) ------------------------------ */
+
+    test("schedule columns round-trip, stay absent when unset, and clear with null", async () => {
+      const plain = await create({ title: "Plain" });
+      expect("publishAt" in plain).toBe(false);
+      expect("unpublishAt" in plain).toBe(false);
+      const at = new Date("2030-01-01T10:00:00.000Z");
+      const off = new Date("2030-02-01T10:00:00.000Z");
+      const row = await create({}, { status: "draft", draftData: { title: "Later" }, publishAt: at });
+      expect(row.publishAt).toEqual(at);
+      expect((await db.findById("posts", row.id))?.publishAt).toEqual(at);
+      const both = await db.update("posts", row.id, { unpublishAt: off });
+      expect(both?.publishAt).toEqual(at);
+      expect(both?.unpublishAt).toEqual(off);
+      const cleared = await db.update("posts", row.id, { publishAt: null });
+      expect(cleared?.publishAt ?? null).toBeNull();
+      expect(cleared?.unpublishAt).toEqual(off);
+      expect((await db.findById("posts", row.id))?.publishAt ?? null).toBeNull();
+    });
+
+    test("published reads hide rows whose unpublishAt has passed; draft reads keep them", async () => {
+      const now = new Date("2030-01-01T12:00:00.000Z");
+      const live = await create({ title: "Live" });
+      const expiring = await create({ title: "Expiring" }, { unpublishAt: new Date("2030-01-01T13:00:00.000Z") });
+      const gone = await create({ title: "Gone" }, { unpublishAt: new Date("2030-01-01T12:00:00.000Z") });
+      const published = await db.find({ collection: "posts", source: "published", now, limit: 0 });
+      expect(published.docs.map((r) => r.id).sort()).toEqual([live.id, expiring.id].sort());
+      expect(published.totalDocs).toBe(2);
+      const later = await db.find({ collection: "posts", source: "published", now: new Date("2030-01-01T13:00:00.000Z"), limit: 0 });
+      expect(later.docs.map((r) => r.id)).toEqual([live.id]);
+      const drafts = await db.find({ collection: "posts", source: "draft", now, limit: 0 });
+      expect(drafts.docs.map((r) => r.id).sort()).toEqual([live.id, expiring.id, gone.id].sort());
+    });
+
+    test("findDue returns due publishes and due unpublishes of live rows, oldest first, across collections", async () => {
+      if (!db.findDue) throw new Error("adapter must implement findDue");
+      const t = (iso: string) => new Date(`2030-01-01T${iso}:00.000Z`);
+      const a = await create({}, { status: "draft", draftData: { n: "a" }, publishAt: t("10:00") });
+      const b = await db.create({ collection: "pages", slug: null, status: "published", data: { n: "b" }, draftData: null, unpublishAt: t("09:00") });
+      await create({ n: "future" }, { status: "draft", draftData: {}, publishAt: t("13:00") });
+      // Unpublish due, but already a draft: nothing to do.
+      await create({}, { status: "draft", draftData: { n: "idle" }, unpublishAt: t("08:00") });
+      await create({ n: "plain" });
+      const due = await db.findDue({ now: t("12:00"), limit: 10 });
+      expect(due.map((r) => r.id)).toEqual([b.id, a.id]);
+      expect((await db.findDue({ now: t("12:00"), limit: 1 })).map((r) => r.id)).toEqual([b.id]);
+      expect(await db.findDue({ now: t("07:00"), limit: 10 })).toEqual([]);
+    });
+
+    /* ------------------------------ versions (#15) ------------------------------ */
+
+    test("versions: create, list newest first with pagination, read, isolate by collection and document", async () => {
+      const { createVersion, findVersions, findVersionById } = db;
+      if (!createVersion || !findVersions || !findVersionById) throw new Error("adapter must implement versions");
+      const add = (data: Record<string, unknown>, extra: Partial<VersionRecord> = {}) =>
+        db.createVersion!({ collection: "posts", documentId: "doc-1", kind: "publish", slug: "hello", data, author: null, ...extra });
+      const first = await add({ title: "v1" }, { author: { id: "u1", name: "Ada", email: "ada@example.com" } });
+      const second = await add({ title: "v2" }, { kind: "draft" });
+      const third = await add({ title: "v3" }, { kind: "restore", slug: null });
+      await add({ title: "other doc" }, { documentId: "doc-2" });
+      await db.createVersion!({ collection: "pages", documentId: "doc-1", kind: "publish", slug: null, data: {}, author: null });
+
+      // Strictly increasing per document, even when written in the same millisecond.
+      expect(second.createdAt.getTime()).toBeGreaterThan(first.createdAt.getTime());
+      expect(third.createdAt.getTime()).toBeGreaterThan(second.createdAt.getTime());
+      expect(first.author).toEqual({ id: "u1", name: "Ada", email: "ada@example.com" });
+
+      const all = await db.findVersions!({ collection: "posts", documentId: "doc-1", limit: 0 });
+      expect(all.docs.map((v) => v.data.title)).toEqual(["v3", "v2", "v1"]);
+      expect(all.totalDocs).toBe(3);
+      const page2 = await db.findVersions!({ collection: "posts", documentId: "doc-1", limit: 2, page: 2 });
+      expect(page2.docs.map((v) => v.id)).toEqual([first.id]);
+      expect(page2).toMatchObject({ totalDocs: 3, totalPages: 2, hasNextPage: false, hasPrevPage: true });
+
+      expect(await db.findVersionById!("posts", second.id)).toEqual(second);
+      expect(await db.findVersionById!("pages", second.id)).toBeNull();
+      expect(third).toMatchObject({ kind: "restore", slug: null, data: { title: "v3" } });
+    });
+
+    test("deleteVersions keeps the newest N or removes all for one document", async () => {
+      const add = (title: string, documentId = "doc-1") =>
+        db.createVersion!({ collection: "posts", documentId, kind: "publish", slug: null, data: { title }, author: null });
+      for (const title of ["v1", "v2", "v3", "v4"]) await add(title);
+      await add("keep me", "doc-2");
+      expect(await db.deleteVersions!("posts", "doc-1", { keep: 2 })).toBe(2);
+      const left = await db.findVersions!({ collection: "posts", documentId: "doc-1", limit: 0 });
+      expect(left.docs.map((v) => v.data.title)).toEqual(["v4", "v3"]);
+      expect(await db.deleteVersions!("posts", "doc-1", { keep: 5 })).toBe(0);
+      expect(await db.deleteVersions!("posts", "doc-1")).toBe(2);
+      expect((await db.findVersions!({ collection: "posts", documentId: "doc-1" })).totalDocs).toBe(0);
+      expect((await db.findVersions!({ collection: "posts", documentId: "doc-2" })).totalDocs).toBe(1);
     });
   });
 }
