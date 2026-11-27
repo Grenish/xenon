@@ -1,6 +1,7 @@
 import type { AnyCollection, Field, XenonConfig, XenonConfigInput } from "./types";
 import { SYSTEM_KEYS, UPLOAD_KEYS } from "./types";
 import { CONDITION_OPERATORS } from "./condition";
+import { COLLECTION_HOOK_NAMES, FIELD_HOOK_NAMES } from "./hooks";
 import { isJsonValue, selectOptionValues, validateFieldValue } from "./validation";
 
 export class XenonConfigError extends Error {
@@ -36,6 +37,19 @@ const INDEXABLE_FIELD_TYPES = new Set([
   "media",
   "relation",
 ]);
+
+/** `hooks` must be an object of known hook names, each a function or an array of functions. */
+function validateHooks(slug: string, at: string | null, hooks: unknown, names: readonly string[]): void {
+  if (hooks === undefined) return;
+  const label = at ? "hooks" : "collection hooks";
+  if (typeof hooks !== "object" || hooks === null || Array.isArray(hooks)) fail(slug, at, `${label} must be an object.`);
+  for (const [name, value] of Object.entries(hooks)) {
+    if (!names.includes(name)) fail(slug, at, `unknown hook "${name}" (expected ${names.join(", ")}).`);
+    if (value === undefined) continue;
+    const list = Array.isArray(value) ? value : [value];
+    if (list.some((fn) => typeof fn !== "function")) fail(slug, at, `hooks.${name} must be a function or an array of functions.`);
+  }
+}
 
 function validateRows(slug: string, path: string, field: { minRows?: number; maxRows?: number }): void {
   for (const k of ["minRows", "maxRows"] as const) {
@@ -122,6 +136,7 @@ function validateFields(
     }
 
     if (field.admin?.condition !== undefined) validateCondition(slug, at, key, field.admin.condition, fields);
+    validateHooks(slug, at, (field as { hooks?: unknown }).hooks, FIELD_HOOK_NAMES);
 
     switch (field.type) {
       case "select": {
@@ -193,6 +208,7 @@ function validateCollection(c: AnyCollection, bySlug: Map<string, AnyCollection>
   const reserved = new Set<string>(RESERVED_KEYS);
   if (isUploadCollection(c)) for (const k of UPLOAD_KEY_SET) reserved.add(k);
   validateFields(slug, fields, "", reserved, bySlug);
+  validateHooks(slug, null, c.hooks, COLLECTION_HOOK_NAMES);
 
   if (c.slugFrom !== undefined) {
     const f = fields[c.slugFrom];

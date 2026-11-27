@@ -2,6 +2,7 @@ import type { DatabaseAdapter, DocumentRecord, FieldIndexSpec, FieldIndexType } 
 import { XenonError } from "../core/errors";
 import type { AnyCollection, Field, FieldsMap, RuntimePopulate, RuntimeSelect } from "../core/types";
 import { SYSTEM_KEYS, UPLOAD_KEYS } from "../core/types";
+import { replaceContents } from "./hooks";
 
 type AnyDoc = Record<string, unknown>;
 
@@ -546,6 +547,11 @@ export async function populateDocs(args: {
   db: DatabaseAdapter;
   getCollection: (slug: string) => AnyCollection | undefined;
   toDoc: (collection: AnyCollection, record: DocumentRecord, draft: boolean) => AnyDoc;
+  /**
+   * Runs `afterRead` hooks on each populated document once its own subtree is populated (before any
+   * nested `select`). The result replaces the document's contents in place.
+   */
+  afterRead?: (collection: AnyCollection, doc: AnyDoc) => Promise<AnyDoc>;
 }): Promise<void> {
   if (!args.docs.length) return;
   const recordCache = new Map<string, Map<string, DocumentRecord | null>>();
@@ -583,6 +589,15 @@ export async function populateDocs(args: {
 
     const nextLevel: PopulateGroup[] = [];
     const deferredSelects: DeferredSelect[] = [];
+    const created: [AnyCollection, AnyDoc][] = [];
+    const afterRead = args.afterRead;
+    const toDoc = afterRead
+      ? (c: AnyCollection, r: DocumentRecord, d: boolean) => {
+          const doc = args.toDoc(c, r, d);
+          created.push([c, doc]);
+          return doc;
+        }
+      : args.toDoc;
     for (const group of groups) {
       applyResolvedToContainers(
         group.fields,
@@ -590,7 +605,7 @@ export async function populateDocs(args: {
         group.spec,
         recordCache,
         args.getCollection,
-        args.toDoc,
+        toDoc,
         args.draft,
         nextLevel,
         deferredSelects,
@@ -599,6 +614,10 @@ export async function populateDocs(args: {
 
     if (nextLevel.length) {
       await processLevel(nextLevel);
+    }
+
+    if (afterRead && created.length) {
+      await Promise.all(created.map(async ([c, doc]) => replaceContents(doc, await afterRead(c, doc))));
     }
 
     for (const deferred of deferredSelects) {
