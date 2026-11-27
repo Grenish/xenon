@@ -53,7 +53,7 @@
     },
     "packages/create-xenon-app": {
       "name": "create-xenon-app",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "bin": {
         "create-xenon-app": "./dist/index.js",
       },
@@ -64,7 +64,7 @@
     },
     "packages/xenon": {
       "name": "xenon-cms",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@base-ui/react": "^1.9.0",
         "@remixicon/react": "^4.9.0",
